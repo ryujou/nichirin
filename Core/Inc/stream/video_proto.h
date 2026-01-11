@@ -1,0 +1,29 @@
+#ifndef VIDEO_PROTO_H
+#define VIDEO_PROTO_H
+
+#include <stdint.h>
+
+#define VIDEO_PROTO_MAGIC0 0xA5U
+#define VIDEO_PROTO_MAGIC1 0x5AU
+
+#define VIDEO_PROTO_TYPE_FRAME_START 0x01U
+#define VIDEO_PROTO_TYPE_FRAME_DATA  0x02U
+#define VIDEO_PROTO_TYPE_STOP        0x03U
+#define VIDEO_PROTO_TYPE_PING        0x04U
+#define VIDEO_PROTO_TYPE_PONG        0x05U
+
+#define VIDEO_PROTO_PIXFMT_RGB565 0U
+
+#define VIDEO_PROTO_HEADER_SIZE 7U
+#define VIDEO_PROTO_BANDS_COUNT 12U
+#define VIDEO_PROTO_START_PAYLOAD_SIZE_V1 5U
+#define VIDEO_PROTO_START_PAYLOAD_SIZE_V2 33U
+#define VIDEO_PROTO_PONG_PAYLOAD_SIZE 6U
+
+#define VIDEO_PROTO_FLAG_KEYFRAME    0x01U
+#define VIDEO_PROTO_FLAG_FORCE_CLEAR 0x02U
+
+uint16_t VideoProto_Crc16Ccitt(const uint8_t *data, uint16_t len);
+uint16_t VideoProto_Crc16CcittUpdate(uint16_t crc, uint8_t data);
+
+#endif /* VIDEO_PROTO_H */

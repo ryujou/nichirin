@@ -1,0 +1,52 @@
+# Build outputs
+/build/
+/cmake-build-*/
+/Debug/
+/Release/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+*.ninja
+*.ninja_deps
+*.ninja_log
+*.map
+*.elf
+*.bin
+*.hex
+*.srec
+*.axf
+*.lst
+*.o
+*.obj
+*.d
+*.su
+*.a
+*.so
+*.dll
+*.exe
+*.exp
+*.pdb
+*.idb
+*.ilk
+*.log
+
+# IDE and editor
+.vscode/
+.settings/
+.idea/
+*.code-workspace
+CMakeUserPresets.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
