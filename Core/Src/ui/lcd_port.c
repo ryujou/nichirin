@@ -2,7 +2,7 @@
 #include "st7735.h"
 
 #ifndef LCD_PORT_COLOR_SWAP
-#define LCD_PORT_COLOR_SWAP LV_COLOR_16_SWAP
+#define LCD_PORT_COLOR_SWAP 0
 #endif
 
 static lv_display_t *s_disp = NULL;

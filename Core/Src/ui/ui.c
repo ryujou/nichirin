@@ -11,6 +11,8 @@ void Ui_Init(void)
 {
   lv_init();
   ST7735_Init();
+  /* Minimal visibility check: fill white before LVGL starts drawing. */
+  ST7735_FillColor(0xFFFFU);
   LcdPort_Init();
   KeypadPort_Init();
   UiLedMenu_Init();

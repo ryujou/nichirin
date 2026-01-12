@@ -1,5 +1,6 @@
 #include "stream/lcd_streamer.h"
 #include "stream/video_proto.h"
+#include "lcd_st7735.h"
 #include "st7735.h"
 #include "main.h"
 #include <stdbool.h>
@@ -15,8 +16,6 @@ typedef struct
 } ByteFifo;
 
 static ByteFifo s_fifo;
-static uint8_t s_tx_buf[LCD_STREAMER_DMA_CHUNK_SIZE];
-
 static volatile uint8_t s_active = 0U;
 static volatile uint8_t s_dma_busy = 0U;
 static volatile uint8_t s_dma_done = 0U;
@@ -27,6 +26,9 @@ static uint8_t s_drop_frame = 0U;
 static uint8_t s_no_signal = 0U;
 static uint16_t s_current_seq = 0U;
 static uint16_t s_last_seq_ok = 0U;
+static uint8_t s_frame_width = ST7735_WIDTH;
+static uint8_t s_frame_height = ST7735_HEIGHT;
+static uint8_t s_debug_marked = 0U;
 static uint32_t s_frame_remaining = 0U;
 static uint32_t s_frame_total = 0U;
 static uint32_t s_received_total = 0U;
@@ -84,24 +86,20 @@ static uint16_t fifo_write(ByteFifo *fifo, const uint8_t *data, uint16_t len)
   return written;
 }
 
-static uint16_t fifo_peek(const ByteFifo *fifo, uint8_t *out, uint16_t len)
+static uint16_t fifo_peek_contig(const ByteFifo *fifo, const uint8_t **out)
 {
-  uint16_t count = fifo_count(fifo);
-  if (len > count)
+  if (fifo->head == fifo->tail)
   {
-    len = count;
+    *out = NULL;
+    return 0U;
   }
-  uint16_t idx = fifo->tail;
-  for (uint16_t i = 0U; i < len; i++)
+  if (fifo->head > fifo->tail)
   {
-    out[i] = fifo->buf[idx];
-    idx++;
-    if (idx >= LCD_STREAMER_FIFO_SIZE)
-    {
-      idx = 0U;
-    }
+    *out = &fifo->buf[fifo->tail];
+    return (uint16_t)(fifo->head - fifo->tail);
   }
-  return len;
+  *out = &fifo->buf[fifo->tail];
+  return (uint16_t)(LCD_STREAMER_FIFO_SIZE - fifo->tail);
 }
 
 static void fifo_skip(ByteFifo *fifo, uint16_t len)
@@ -159,6 +157,9 @@ void LcdStreamer_Init(void)
   s_no_signal = 0U;
   s_current_seq = 0U;
   s_last_seq_ok = 0U;
+  s_frame_width = ST7735_WIDTH;
+  s_frame_height = ST7735_HEIGHT;
+  s_debug_marked = 0U;
   s_frame_remaining = 0U;
   s_frame_total = 0U;
   s_received_total = 0U;
@@ -175,6 +176,9 @@ void LcdStreamer_Start(void)
   s_frame_active = 0U;
   s_drop_frame = 0U;
   s_no_signal = 0U;
+  s_frame_width = ST7735_WIDTH;
+  s_frame_height = ST7735_HEIGHT;
+  s_debug_marked = 0U;
   s_frame_remaining = 0U;
   s_frame_total = 0U;
   s_received_total = 0U;
@@ -211,7 +215,7 @@ void LcdStreamer_OnFrameStart(uint16_t seq,
   {
     return;
   }
-  if ((width != ST7735_WIDTH) || (height != ST7735_HEIGHT) || (pixfmt != VIDEO_PROTO_PIXFMT_RGB565))
+  if ((pixfmt != VIDEO_PROTO_PIXFMT_RGB565) || (width == 0U) || (height == 0U))
   {
     LcdStreamer_DropFrame();
     return;
@@ -230,6 +234,8 @@ void LcdStreamer_OnFrameStart(uint16_t seq,
   fifo_clear(&s_fifo);
   s_current_seq = seq;
   s_last_seq_ok = seq;
+  s_frame_width = width;
+  s_frame_height = height;
   s_frame_total = frame_bytes;
   s_frame_remaining = frame_bytes;
   s_received_total = 0U;
@@ -238,6 +244,11 @@ void LcdStreamer_OnFrameStart(uint16_t seq,
   s_need_window = 1U;
   s_first_chunk = 1U;
   s_no_signal = 0U;
+  if (s_debug_marked == 0U)
+  {
+    s_debug_marked = 1U;
+    draw_point(0U, 0U, 0xF800U);
+  }
 }
 
 void LcdStreamer_OnFrameData(uint16_t seq, const uint8_t *data, uint16_t len)
@@ -309,6 +320,10 @@ void LcdStreamer_Poll(void)
   {
     if (s_last_dma_len > 0U)
     {
+      fifo_skip(&s_fifo, s_last_dma_len);
+    }
+    if (s_last_dma_len > 0U)
+    {
       if (s_frame_remaining > s_last_dma_len)
       {
         s_frame_remaining -= s_last_dma_len;
@@ -360,32 +375,38 @@ void LcdStreamer_Poll(void)
 
   if (s_need_window != 0U)
   {
-    ST7735_SetAddrWindow(0U, 0U, ST7735_WIDTH - 1U, ST7735_HEIGHT - 1U);
+    ST7735_SetAddrWindow(0U, 0U, (uint16_t)(s_frame_width - 1U), (uint16_t)(s_frame_height - 1U));
     s_need_window = 0U;
   }
 
-  uint16_t copied = fifo_peek(&s_fifo, s_tx_buf, required);
-  if (copied != required)
+  const uint8_t *chunk_ptr = NULL;
+  uint16_t contig = fifo_peek_contig(&s_fifo, &chunk_ptr);
+  if ((chunk_ptr == NULL) || (contig == 0U))
   {
     return;
+  }
+
+  uint16_t send_len = required;
+  if (send_len > contig)
+  {
+    send_len = contig;
   }
 
   bool ok = false;
   if (s_first_chunk != 0U)
   {
     s_first_chunk = 0U;
-    ok = ST7735_WritePixels_DMA(s_tx_buf, copied);
+    ok = ST7735_WritePixels_DMA(chunk_ptr, send_len);
   }
   else
   {
-    ok = ST7735_WritePixels_DMA_Continue(s_tx_buf, copied);
+    ok = ST7735_WritePixels_DMA_Continue(chunk_ptr, send_len);
   }
 
   if (ok)
   {
-    fifo_skip(&s_fifo, copied);
     s_dma_busy = 1U;
-    s_last_dma_len = copied;
+    s_last_dma_len = send_len;
   }
 }
 

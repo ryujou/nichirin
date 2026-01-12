@@ -10,7 +10,7 @@
 #define ST7735_HEIGHT 160U
 
 /* Panel offset: adjust if image is shifted (common values: X=26, Y=1). */
-#define ST7735_X_OFFSET 0U
+#define ST7735_X_OFFSET 24U
 #define ST7735_Y_OFFSET 0U
 
 void ST7735_Init(void);

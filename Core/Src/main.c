@@ -24,9 +24,7 @@
 /* USER CODE BEGIN Includes */
 #include "app/app.h"
 #include "led/led_engine.h"
-#include "ui/lcd_port.h"
-#include "ui/ui.h"
-#include "stream/lcd_streamer.h"
+#include "st7735.h"
 
 /* USER CODE END Includes */
 
@@ -200,7 +198,7 @@ static void MX_SPI1_Init(void)
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi1.Init.NSS = SPI_NSS_SOFT;
-  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_4;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -267,7 +265,7 @@ static void MX_DMA_Init(void)
 
   /* DMA interrupt init */
   /* DMA1_Channel1_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 3, 0);
+  HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
 
 }
@@ -357,20 +355,15 @@ void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
 {
   if (hspi->Instance == SPI1)
   {
-    if (LcdPort_IsBusy() != 0U)
+    if (ST7735_DMA_Busy())
     {
-      LcdPort_OnDmaTxComplete();
-    }
-    else if (LcdStreamer_IsDmaBusy() != 0U)
-    {
-      LcdStreamer_OnDmaTxComplete();
+      ST7735_OnSpiTxDmaDone();
     }
   }
 }
 
 void HAL_SYSTICK_Callback(void)
 {
-  Ui_TickInc1ms();
 }
 
 /* USER CODE END 4 */

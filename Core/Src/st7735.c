@@ -78,16 +78,125 @@ void ST7735_Init(void)
   ST7735_WriteCommand(ST7735_SLPOUT);
   HAL_Delay(120);
 
+  /* Frame rate control */
+  {
+    uint8_t data[3];
+    ST7735_WriteCommand(0xB1);
+    data[0] = 0x01;
+    data[1] = 0x2C;
+    data[2] = 0x2D;
+    ST7735_WriteData(data, 3U);
+    ST7735_WriteCommand(0xB2);
+    ST7735_WriteData(data, 3U);
+    ST7735_WriteCommand(0xB3);
+    ST7735_WriteData(data, 3U);
+    ST7735_WriteData(data, 3U);
+  }
+
+  /* Display inversion control */
+  {
+    uint8_t data = 0x07;
+    ST7735_WriteCommand(0xB4);
+    ST7735_WriteData(&data, 1U);
+  }
+
+  /* Power control */
+  {
+    uint8_t data[3];
+    ST7735_WriteCommand(0xC0);
+    data[0] = 0xA2;
+    data[1] = 0x02;
+    data[2] = 0x84;
+    ST7735_WriteData(data, 3U);
+
+    ST7735_WriteCommand(0xC1);
+    data[0] = 0xC5;
+    ST7735_WriteData(data, 1U);
+
+    ST7735_WriteCommand(0xC2);
+    data[0] = 0x0A;
+    data[1] = 0x00;
+    ST7735_WriteData(data, 2U);
+
+    ST7735_WriteCommand(0xC3);
+    data[0] = 0x8A;
+    data[1] = 0x2A;
+    ST7735_WriteData(data, 2U);
+
+    ST7735_WriteCommand(0xC4);
+    data[0] = 0x8A;
+    data[1] = 0xEE;
+    ST7735_WriteData(data, 2U);
+
+    ST7735_WriteCommand(0xC5);
+    data[0] = 0x0E;
+    ST7735_WriteData(data, 1U);
+  }
+
+  {
+    uint8_t madctl = (uint8_t)(ST7735_MADCTL_BGR | ST7735_MADCTL_MX | ST7735_MADCTL_MY);
+    ST7735_WriteCommand(ST7735_MADCTL);
+    ST7735_WriteData(&madctl, 1U);
+  }
+
+  /* Gamma correction */
+  {
+    uint8_t data[16] = {
+      0x0F, 0x1A, 0x0F, 0x18, 0x2F, 0x28, 0x20, 0x22,
+      0x1F, 0x1B, 0x23, 0x37, 0x00, 0x07, 0x02, 0x10
+    };
+    ST7735_WriteCommand(0xE0);
+    ST7735_WriteData(data, 16U);
+    data[0] = 0x0F;
+    data[1] = 0x1B;
+    data[2] = 0x0F;
+    data[3] = 0x17;
+    data[4] = 0x33;
+    data[5] = 0x2C;
+    data[6] = 0x29;
+    data[7] = 0x2E;
+    data[8] = 0x28;
+    data[9] = 0x30;
+    data[10] = 0x30;
+    data[11] = 0x39;
+    data[12] = 0x3F;
+    data[13] = 0x00;
+    data[14] = 0x07;
+    data[15] = 0x03;
+    ST7735_WriteCommand(0xE1);
+    ST7735_WriteData(data, 16U);
+    {
+      uint8_t extra = 0x10;
+      ST7735_WriteData(&extra, 1U);
+    }
+  }
+
+  {
+    uint8_t data[4];
+    ST7735_WriteCommand(ST7735_CASET);
+    data[0] = 0x00;
+    data[1] = 0x00;
+    data[2] = 0x00;
+    data[3] = 0x7F;
+    ST7735_WriteData(data, 4U);
+    ST7735_WriteCommand(ST7735_PASET);
+    data[3] = 0x9F;
+    ST7735_WriteData(data, 4U);
+  }
+
+  {
+    uint8_t data = 0x01;
+    ST7735_WriteCommand(0xF0);
+    ST7735_WriteData(&data, 1U);
+    data = 0x00;
+    ST7735_WriteCommand(0xF6);
+    ST7735_WriteData(&data, 1U);
+  }
+
   {
     uint8_t colmod = 0x55;
     ST7735_WriteCommand(ST7735_COLMOD);
     ST7735_WriteData(&colmod, 1U);
-  }
-
-  {
-    uint8_t madctl = (uint8_t)(ST7735_MADCTL_RGB | ST7735_MADCTL_MX | ST7735_MADCTL_MY);
-    ST7735_WriteCommand(ST7735_MADCTL);
-    ST7735_WriteData(&madctl, 1U);
   }
 
   ST7735_WriteCommand(ST7735_DISPON);

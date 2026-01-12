@@ -39,12 +39,17 @@ TYPE_FRAME_DATA = 0x02
 TYPE_STOP = 0x03
 TYPE_PING = 0x04
 TYPE_PONG = 0x05
+TYPE_FRAME_SMALL = 0x10
 PIX_FMT_RGB565 = 0x00
 SIM_HOST = "127.0.0.1"
 SIM_PORT = 18080
 
 WIDTH = 80
 HEIGHT = 160
+FRAME_W = 20
+FRAME_H = 40
+USB_TX_CHUNK = 512
+USB_TX_GAP_S = 0.001
 
 NFFT = 2048
 HOP = 1024
@@ -66,8 +71,7 @@ def crc16_ccitt(data: bytes) -> int:
 
 def build_packet(pkt_type: int, seq: int, payload: bytes) -> bytes:
     header = struct.pack("<BHH", pkt_type, seq & 0xFFFF, len(payload) & 0xFFFF)
-    crc = crc16_ccitt(header + payload)
-    return MAGIC + header + payload + struct.pack("<H", crc)
+    return MAGIC + header + payload
 
 
 def rgb_to_rgb565(rgb: np.ndarray, swap_endian: bool) -> bytes:
@@ -127,10 +131,10 @@ def prepare_bgr_frame(
     swap_endian: bool,
     target_w: int,
     target_h: int,
-    rotate_ccw: bool,
+    rotate_cw: bool,
 ):
-    if rotate_ccw:
-        frame_bgr = cv2.rotate(frame_bgr, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    if rotate_cw:
+        frame_bgr = cv2.rotate(frame_bgr, cv2.ROTATE_90_CLOCKWISE)
     frame = cv2.resize(frame_bgr, (target_w, target_h), interpolation=cv2.INTER_AREA)
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     return rgb_to_rgb565(rgb, swap_endian), rgb
@@ -141,10 +145,10 @@ def prepare_rgb_frame(
     swap_endian: bool,
     target_w: int,
     target_h: int,
-    rotate_ccw: bool,
+    rotate_cw: bool,
 ):
-    if rotate_ccw:
-        frame_rgb = np.rot90(frame_rgb, 1)
+    if rotate_cw:
+        frame_rgb = np.rot90(frame_rgb, -1)
     resized = resize_rgb(frame_rgb, target_w, target_h)
     return rgb_to_rgb565(resized, swap_endian), resized
 
@@ -170,10 +174,10 @@ def iter_frames_opencv(path: str):
     return gen()
 
 
-def iter_frames_ffmpeg(path: str, width: int, height: int, scale: bool, rotate_ccw: bool):
+def iter_frames_ffmpeg(path: str, width: int, height: int, scale: bool, rotate_cw: bool):
     vf_parts = []
-    if rotate_ccw:
-        vf_parts.append("transpose=2")
+    if rotate_cw:
+        vf_parts.append("transpose=1")
     if scale:
         vf_parts.append(f"scale={width}:{height}")
     vf = ",".join(vf_parts) if vf_parts else None
@@ -189,6 +193,8 @@ def iter_frames_ffmpeg(path: str, width: int, height: int, scale: bool, rotate_c
         "-"
     ]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if proc.stderr is not None:
+        threading.Thread(target=_drain_stream, args=(proc.stderr,), daemon=True).start()
     frame_size = width * height * 3
 
     def gen():
@@ -249,6 +255,56 @@ def detect_video_size(path: str):
 
 
 
+def detect_video_fps(path: str):
+    if not path or not os.path.isfile(path):
+        return None
+    if cv2 is not None:
+        cap = cv2.VideoCapture(path)
+        if cap.isOpened():
+            fps = float(cap.get(cv2.CAP_PROP_FPS))
+            cap.release()
+            if fps > 1.0:
+                return fps
+        else:
+            cap.release()
+
+    cmd = [
+        "ffprobe",
+        "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=r_frame_rate,avg_frame_rate",
+        "-of", "default=nw=1:nk=1",
+        path,
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    except FileNotFoundError:
+        return None
+    for line in (proc.stdout or "").splitlines():
+        text = line.strip()
+        if not text:
+            continue
+        if "/" in text:
+            num, den = text.split("/", 1)
+            try:
+                n = float(num)
+                d = float(den)
+                if d > 0.0:
+                    fps = n / d
+                    if fps > 1.0:
+                        return fps
+            except ValueError:
+                continue
+        else:
+            try:
+                fps = float(text)
+                if fps > 1.0:
+                    return fps
+            except ValueError:
+                continue
+    return None
+
+
 
 class AudioReader:
     def __init__(self, path: str):
@@ -262,6 +318,8 @@ class AudioReader:
             "-"
         ]
         self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if self.proc.stderr is not None:
+            threading.Thread(target=_drain_stream, args=(self.proc.stderr,), daemon=True).start()
 
     def read_samples(self, count: int) -> np.ndarray:
         if count <= 0:
@@ -280,6 +338,16 @@ class AudioReader:
             self.proc.terminate()
         except Exception:
             pass
+
+
+def _drain_stream(stream):
+    try:
+        while True:
+            chunk = stream.read(4096)
+            if not chunk:
+                break
+    except Exception:
+        pass
 
 
 class SpectrumAnalyzer:
@@ -381,17 +449,12 @@ class PacketParser:
             pkt_type = self.buf[i + 2]
             seq = self.buf[i + 3] | (self.buf[i + 4] << 8)
             length = self.buf[i + 5] | (self.buf[i + 6] << 8)
-            total = 2 + 1 + 2 + 2 + length + 2
+            total = 2 + 1 + 2 + 2 + length
             if i + total > len(self.buf):
                 break
             payload = bytes(self.buf[i + 7:i + 7 + length])
-            crc_recv = self.buf[i + 7 + length] | (self.buf[i + 8 + length] << 8)
-            crc_calc = crc16_ccitt(bytes(self.buf[i + 2:i + 7 + length]))
-            if crc_calc == crc_recv:
-                yield pkt_type, seq, payload
-                i += total
-            else:
-                i += 1
+            yield pkt_type, seq, payload
+            i += total
         if i > 0:
             del self.buf[:i]
 
@@ -426,7 +489,7 @@ class StreamWorker(QThread):
         frame_bytes_size = frame_w * frame_h * 2
         log_tx = bool(cfg.log_tx)
         use_udp = bool(cfg.use_udp)
-        rotate_ccw = bool(cfg.rotate_cw)
+        rotate_cw = bool(cfg.rotate_cw)
 
         frame_iter = iter_frames_opencv(cfg.video_path)
         use_bgr = True
@@ -436,9 +499,9 @@ class StreamWorker(QThread):
                 src_size = detect_video_size(cfg.video_path)
                 if src_size:
                     src_w, src_h = src_size
-                    frame_iter = iter_frames_ffmpeg(cfg.video_path, src_w, src_h, False, rotate_ccw)
+                    frame_iter = iter_frames_ffmpeg(cfg.video_path, src_w, src_h, False, rotate_cw)
                 else:
-                    frame_iter = iter_frames_ffmpeg(cfg.video_path, frame_w, frame_h, True, rotate_ccw)
+                    frame_iter = iter_frames_ffmpeg(cfg.video_path, frame_w, frame_h, True, rotate_cw)
                 self._log("OpenCV 不可用，改用 ffmpeg 读取视频。")
             except FileNotFoundError:
                 self.failed.emit("OpenCV 不可用且未找到 ffmpeg（请检查 PATH）。")
@@ -468,12 +531,14 @@ class StreamWorker(QThread):
         parser = PacketParser() if (not use_udp) else None
         analyzer = SpectrumAnalyzer()
 
-        fps_current = float(cfg.fps_max)
+        src_fps = detect_video_fps(cfg.video_path)
+        if src_fps is None or src_fps <= 1.0:
+            fps_current = float(cfg.fps_max)
+        else:
+            fps_current = float(src_fps)
         frame_interval = 1.0 / max(fps_current, 1.0)
         next_deadline = time.perf_counter()
         last_ping = time.perf_counter()
-        slow_count = 0
-        fast_count = 0
         bytes_accum = 0
         stats_start = time.perf_counter()
 
@@ -484,147 +549,120 @@ class StreamWorker(QThread):
         else:
             self._log(f"串口已打开: {cfg.port}, fps_max={cfg.fps_max}, chunk={cfg.chunk}, swap_endian={cfg.swap_endian}")
             self._log(f"开始传输: {frame_w}x{frame_h} RGB565 + 音频频谱。")
-        if rotate_ccw:
+        if rotate_cw:
             self._log("竖屏视频：逆时针旋转 90° 转横屏，再缩放。")
         else:
             self._log("横屏视频：直接缩放。")
 
         try:
-            for frame in frame_iter:
-                if self._stop_req:
-                    self._log("已请求停止，发送 STOP...")
-                    break
+            while not self._stop_req:
+                for frame in frame_iter:
+                    if self._stop_req:
+                        self._log("Stop requested, sending STOP...")
+                        break
 
-                frame_begin = time.perf_counter()
+                    frame_begin = time.perf_counter()
 
-                frame_samples = int(round(SAMPLE_RATE / max(fps_current, 1.0)))
-                samples = audio.read_samples(frame_samples)
-                bands_val, bands_peak, peak_ema = analyzer.process(samples)
-                if samples.size:
-                    pcm = np.clip(samples, -1.0, 1.0)
-                    pcm = (pcm * 32767.0).astype(np.int16)
-                    self.audio_ready.emit(pcm.tobytes())
+                    frame_samples = int(round(SAMPLE_RATE / max(fps_current, 1.0)))
+                    samples = audio.read_samples(frame_samples)
+                    bands_val, bands_peak, peak_ema = analyzer.process(samples)
+                    if samples.size:
+                        pcm = np.clip(samples, -1.0, 1.0)
+                        pcm = (pcm * 32767.0).astype(np.int16)
+                        self.audio_ready.emit(pcm.tobytes())
 
-                if use_bgr:
-                    if frame is None or frame.size == 0:
-                        continue
-                    preview_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    if rotate_ccw:
-                        preview_rgb = np.rot90(preview_rgb, 1)
-                    frame_bytes, _ = prepare_bgr_frame(
-                        frame,
-                        cfg.swap_endian,
-                        frame_w,
-                        frame_h,
-                        rotate_ccw,
-                    )
-                else:
-                    preview_rgb = frame
-                    if rotate_ccw:
-                        preview_rgb = np.rot90(preview_rgb, 1)
-                    frame_bytes, _ = prepare_rgb_frame(
-                        frame,
-                        cfg.swap_endian,
-                        frame_w,
-                        frame_h,
-                        rotate_ccw,
-                    )
+                    if use_bgr:
+                        if frame is None or frame.size == 0:
+                            continue
+                        preview_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        if rotate_cw:
+                            preview_rgb = np.rot90(preview_rgb, -1)
+                        frame_bytes, _ = prepare_bgr_frame(
+                            frame,
+                            cfg.swap_endian,
+                            frame_w,
+                            frame_h,
+                            rotate_cw,
+                        )
+                    else:
+                        preview_rgb = frame
+                        if rotate_cw:
+                            preview_rgb = np.rot90(preview_rgb, -1)
+                        frame_bytes, _ = prepare_rgb_frame(
+                            frame,
+                            cfg.swap_endian,
+                            frame_w,
+                            frame_h,
+                            rotate_cw,
+                        )
 
-                if True:
-                    payload_start = (
-                        struct.pack("<BBBH", frame_w, frame_h, PIX_FMT_RGB565, frame_bytes_size)
+                    payload = (
+                        struct.pack("<BBB", frame_w, frame_h, PIX_FMT_RGB565)
                         + bytes(bands_val)
-                        + bytes(bands_peak)
-                        + struct.pack("<B", 0)
+                        + frame_bytes
                     )
-                    pkt = build_packet(TYPE_FRAME_START, seq, payload_start)
+                    pkt = build_packet(TYPE_FRAME_SMALL, seq, payload)
                     if use_udp:
                         udp_sock.sendto(pkt, (cfg.udp_host, cfg.udp_port))
                     else:
-                        ser.write(pkt)
+                        for off in range(0, len(pkt), USB_TX_CHUNK):
+                            ser.write(pkt[off:off + USB_TX_CHUNK])
+                            time.sleep(USB_TX_GAP_S)
                     if log_tx:
-                        self._log(f"TX FRAME_START {len(pkt)}B: {pkt[:48].hex()}")
+                        self._log(f"TX FRAME_SMALL {len(pkt)}B: {pkt[:48].hex()}")
                     bytes_accum += len(pkt)
 
-                    for off in range(0, len(frame_bytes), cfg.chunk):
-                        if self._stop_req:
-                            break
-                        chunk = frame_bytes[off:off + cfg.chunk]
-                        pkt = build_packet(TYPE_FRAME_DATA, seq, chunk)
-                        if use_udp:
-                            udp_sock.sendto(pkt, (cfg.udp_host, cfg.udp_port))
-                        else:
-                            ser.write(pkt)
-                        if log_tx:
-                            self._log(f"TX FRAME_DATA {len(pkt)}B: {pkt[:48].hex()}")
-                        bytes_accum += len(pkt)
+                    if self._stop_req:
+                        self._log("Stop requested, sending STOP...")
+                        break
+
+                    preview = rgb_to_qimage(preview_rgb)
+                    self.frame_ready.emit(preview, bands_val, bands_peak)
+
+                    if not use_udp and time.perf_counter() - last_ping >= 1.0:
+                        last_ping = time.perf_counter()
+
+                    seq = (seq + 1) & 0xFFFF
+
+                    tx_time = time.perf_counter() - frame_begin
+
+                    now = time.perf_counter()
+                    if now - stats_start >= 1.0:
+                        bytes_per_s = bytes_accum / (now - stats_start)
+                        bytes_accum = 0
+                        stats_start = now
+                        self.stats.emit(StreamStats(
+                            fps_current=fps_current,
+                            bytes_per_s=bytes_per_s,
+                            seq=seq,
+                            peak_ema=peak_ema,
+                        ))
+
+                    next_deadline += frame_interval
+                    sleep_time = next_deadline - time.perf_counter()
+                    if sleep_time > 0:
+                        time.sleep(sleep_time)
+                    else:
+                        next_deadline = time.perf_counter()
 
                 if self._stop_req:
-                    self._log("已请求停止，发送 STOP...")
                     break
-
-                preview = rgb_to_qimage(preview_rgb)
-                self.frame_ready.emit(preview, bands_val, bands_peak)
-
-                if not use_udp and time.perf_counter() - last_ping >= 1.0:
-                    ping_pkt = build_packet(TYPE_PING, seq, b"")
-                    ser.write(ping_pkt)
-                    if log_tx:
-                        self._log(f"TX PING {len(ping_pkt)}B: {ping_pkt[:48].hex()}")
-                    bytes_accum += len(ping_pkt)
-                    last_ping = time.perf_counter()
-
-                if not use_udp:
-                    rx_len = ser.in_waiting
-                    if rx_len:
-                        data = ser.read(rx_len)
-                        parser.feed(data)
-                        for pkt_type, _, payload in parser.iter_packets():
-                            if pkt_type == TYPE_PONG and len(payload) >= 6:
-                                _ = payload  # placeholder for future stats
-
-                seq = (seq + 1) & 0xFFFF
-
-                tx_time = time.perf_counter() - frame_begin
-                if tx_time > 0.95 * frame_interval:
-                    slow_count += 1
-                    fast_count = 0
-                elif tx_time < 0.60 * frame_interval:
-                    fast_count += 1
-                    slow_count = 0
-                else:
-                    slow_count = 0
-                    fast_count = 0
-
-                if slow_count >= 10:
-                    fps_current = max(6.0, fps_current * 0.85)
-                    frame_interval = 1.0 / fps_current
-                    slow_count = 0
-                    next_deadline = time.perf_counter() + frame_interval
-                elif fast_count >= 60:
-                    fps_current = min(cfg.fps_max, fps_current * 1.05)
-                    frame_interval = 1.0 / fps_current
-                    fast_count = 0
-                    next_deadline = time.perf_counter() + frame_interval
-
-                now = time.perf_counter()
-                if now - stats_start >= 1.0:
-                    bytes_per_s = bytes_accum / (now - stats_start)
-                    bytes_accum = 0
-                    stats_start = now
-                    self.stats.emit(StreamStats(
-                        fps_current=fps_current,
-                        bytes_per_s=bytes_per_s,
-                        seq=seq,
-                        peak_ema=peak_ema,
-                    ))
-
-                next_deadline += frame_interval
-                sleep_time = next_deadline - time.perf_counter()
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
-                else:
-                    next_deadline = time.perf_counter()
+                self._log("Looping video playback...")
+                if audio is not None:
+                    audio.close()
+                audio = AudioReader(cfg.video_path)
+                if use_bgr:
+                    frame_iter = iter_frames_opencv(cfg.video_path)
+                    if frame_iter is None:
+                        use_bgr = False
+                if not use_bgr:
+                    src_size = detect_video_size(cfg.video_path)
+                    if src_size:
+                        src_w, src_h = src_size
+                        frame_iter = iter_frames_ffmpeg(cfg.video_path, src_w, src_h, False, rotate_cw)
+                    else:
+                        frame_iter = iter_frames_ffmpeg(cfg.video_path, frame_w, frame_h, True, rotate_cw)
+                next_deadline = time.perf_counter()
 
         except Exception as e:
             self._log(f"传输错误: {e}")
@@ -797,6 +835,7 @@ class SimulatorReceiver(QThread):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
             sock.bind((self.host, self.port))
+
         except Exception as e:
             self.log.emit(f"模拟器绑定失败: {e}")
             sock.close()
@@ -946,7 +985,7 @@ class MainWindow(QMainWindow):
         self.fps_spin = QDoubleSpinBox()
         self.fps_spin.setRange(6.0, 60.0)
         self.fps_spin.setDecimals(1)
-        self.fps_spin.setValue(12.0)
+        self.fps_spin.setValue(60.0)
 
         self.chunk_spin = QSpinBox()
         self.chunk_spin.setRange(256, 4096)
@@ -1096,7 +1135,7 @@ class MainWindow(QMainWindow):
         self.log_tx_chk.setEnabled(True)
         if not keep_video:
             self.video_edit.setText("")
-        self.fps_spin.setValue(12.0)
+        self.fps_spin.setValue(60.0)
         self.chunk_spin.setValue(1024)
         self.swap_chk.setChecked(True)
         self.log_tx_chk.setChecked(False)
@@ -1155,8 +1194,8 @@ class MainWindow(QMainWindow):
         if not port:
             QMessageBox.warning(self, "错误", "请选择有效的串口。")
             return
-        frame_w = HEIGHT
-        frame_h = WIDTH
+        frame_w = FRAME_W
+        frame_h = FRAME_H
         use_udp = (port == "__SIM__")
         if use_udp:
             self.on_open_simulator()
@@ -1167,7 +1206,7 @@ class MainWindow(QMainWindow):
             fps_max=float(self.fps_spin.value()),
             chunk=int(self.chunk_spin.value()),
             swap_endian=bool(self.swap_chk.isChecked()),
-            rotate_cw=portrait,
+            rotate_cw=not portrait,
             frame_width=frame_w,
             frame_height=frame_h,
             log_tx=bool(self.log_tx_chk.isChecked()),

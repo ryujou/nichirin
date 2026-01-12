@@ -7,5 +7,6 @@ void UsbStreamRx_Init(void);
 void UsbStreamRx_Reset(void);
 void UsbStreamRx_OnRxData(const uint8_t *data, uint32_t len);
 void UsbStreamRx_Poll(void);
+uint32_t UsbStreamRx_GetRxTotal(void);
 
 #endif /* USB_STREAM_RX_H */
