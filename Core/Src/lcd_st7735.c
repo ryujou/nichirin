@@ -480,7 +480,6 @@ bool ST7735_WritePixels_DMA_Continue(const uint8_t *data, uint16_t len)
 
 void ST7735_OnSpiTxDmaDone(void)
 {
-	CS_HIGH;
 	s_lcd_dma_busy = 0U;
 }
 

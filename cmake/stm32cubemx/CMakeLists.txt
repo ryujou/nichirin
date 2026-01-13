@@ -38,6 +38,8 @@ set(MX_Application_Src
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/storage/config_store.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/ui/simple_menu.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/stream/usb_stream_rx.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/stream/lcd_streamer.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/stream/spectrum_led.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/stream/video_proto.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/sysmem.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/syscalls.c
@@ -87,7 +89,8 @@ set(MX_LINK_DIRS
 set(MX_LINK_LIBS 
     STM32_Drivers
     ${TOOLCHAIN_LINK_LIBRARIES}
-    USB_Device_Library	
+    USB_Device_Library
+	
 )
 # Interface library for includes and symbols
 add_library(stm32cubemx INTERFACE)

@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define LCD_STREAMER_FIFO_SIZE 16384U
+#define LCD_STREAMER_FIFO_SIZE 8192U
 #define LCD_STREAMER_DMA_CHUNK_SIZE 512U
 
 void LcdStreamer_Init(void);

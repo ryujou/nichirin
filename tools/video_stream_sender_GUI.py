@@ -41,6 +41,8 @@ TYPE_PING = 0x04
 TYPE_PONG = 0x05
 TYPE_FRAME_SMALL = 0x10
 PIX_FMT_RGB565 = 0x00
+PIX_FMT_RGB332 = 0x01
+PIX_FMT_RGB4 = 0x02
 SIM_HOST = "127.0.0.1"
 SIM_PORT = 18080
 
@@ -51,10 +53,35 @@ FRAME_H = 40
 USB_TX_CHUNK = 512
 USB_TX_GAP_S = 0.001
 
+# Adaptive throttling (serial only). Removes fixed per-chunk sleep.
+USB_OUT_WAITING_HIGH_WATER = 2048
+USB_OUT_WAITING_SLEEP_S = 0.001
+
+# Extra pacing for full-frame streaming. Helps avoid device-side RX/parser overruns.
+SERIAL_FULLFRAME_FPS_CAP = 8.0
+SERIAL_FRAME_DRAIN_HIGH_WATER = 2048
+SERIAL_FRAME_DRAIN_TIMEOUT_S = 0.05
+
+# Strong pacing: wait for device PONG (frame-done ack). Prevents drops/tearing.
+SERIAL_WAIT_PONG = True
+SERIAL_PONG_TIMEOUT_S = 0.5
+
+# Audio pump keeps playback smooth even if video is throttled / frame-skipped.
+AUDIO_PUMP_MIN_S = 0.008
+AUDIO_PUMP_MAX_SAMPLES = 8192
+
+# Hard cap to avoid huge host bursts that can overflow the device-side RX ring buffer.
+USB_WRITE_MAX_CHUNK = 256
+
 NFFT = 2048
 HOP = 1024
 SAMPLE_RATE = 48000
-EDGES_HZ = [60, 93, 145, 226, 351, 546, 849, 1320, 2052, 3191, 4962, 7717, 12000]
+# Two alternative 12-band edge tables (13 edges each). Analyzer switches at runtime.
+EDGES_HZ_ACG = [30, 60, 110, 180, 300, 500, 800, 1200, 1800, 2600, 3800, 6000, 12000]
+EDGES_HZ_EDM = [30, 45, 60, 80, 110, 160, 230, 330, 480, 700, 1100, 2500, 12000]
+
+# Runtime current edges (initialized to ACG)
+EDGES_HZ = list(EDGES_HZ_ACG)
 
 
 def crc16_ccitt(data: bytes) -> int:
@@ -82,6 +109,120 @@ def rgb_to_rgb565(rgb: np.ndarray, swap_endian: bool) -> bytes:
     if swap_endian:
         rgb565 = rgb565.byteswap()
     return rgb565.tobytes()
+
+
+def rgb_to_rgb332(rgb: np.ndarray) -> bytes:
+    """Pack RGB888 to RGB332 (R3G3B2)."""
+    r = (rgb[:, :, 0] >> 5).astype(np.uint8) & 0x07
+    g = (rgb[:, :, 1] >> 5).astype(np.uint8) & 0x07
+    b = (rgb[:, :, 2] >> 6).astype(np.uint8) & 0x03
+    pix = (r << 5) | (g << 2) | b
+    return pix.tobytes()
+
+
+_BAYER4 = (np.array(
+    [
+        [0, 8, 2, 10],
+        [12, 4, 14, 6],
+        [3, 11, 1, 9],
+        [15, 7, 13, 5],
+    ],
+    dtype=np.int16,
+) - 7)
+
+
+def rgb_to_rgb4_indexed_dither(rgb: np.ndarray, strength: int = 20) -> bytes:
+    """Convert RGB888 to 4bpp indexed palette with ordered dithering (fast).
+
+    Uses thresholding to map to an ANSI-like 16-color palette:
+    - low 8 colors: RGB bits (black..white)
+    - high 8 colors: "bright" variants
+    - gray is used for mid-bright low-saturation pixels
+
+    Pack 2 pixels per byte: high nibble = even pixel, low nibble = odd pixel.
+    """
+    h, w = rgb.shape[:2]
+    bayer = np.tile(_BAYER4, (h // 4 + 1, w // 4 + 1))[:h, :w]
+    adj = rgb.astype(np.int16) + (bayer[:, :, None] * int(strength))
+    adj = np.clip(adj, 0, 255).astype(np.uint8)
+
+    r = adj[:, :, 0].astype(np.int16)
+    g = adj[:, :, 1].astype(np.int16)
+    b = adj[:, :, 2].astype(np.int16)
+
+    # Luma-ish for brightness decision
+    luma = (r * 2 + g * 3 + b) // 6
+
+    thr = 128
+    rb = (r >= thr).astype(np.uint8)
+    gb = (g >= thr).astype(np.uint8)
+    bb = (b >= thr).astype(np.uint8)
+
+    base = (rb << 2) | (gb << 1) | bb  # 0..7
+
+    # Gray: not strongly colored but not dark
+    chroma = (np.abs(r - g) + np.abs(g - b) + np.abs(b - r))
+    is_gray = (base == 0) & (luma >= 80) | ((base == 7) & (chroma <= 60) & (luma < 180))
+
+    bright = (luma >= 180)
+
+    idx = base.copy()
+    idx[bright & (base != 0)] = (idx[bright & (base != 0)] + 8).astype(np.uint8)
+    idx[is_gray] = 8
+
+    flat = idx.reshape(-1)
+    if flat.size & 1:
+        flat = np.pad(flat, (0, 1), constant_values=0)
+    packed = ((flat[0::2] & 0x0F) << 4) | (flat[1::2] & 0x0F)
+    return packed.astype(np.uint8).tobytes()
+
+
+def serial_write_packet_adaptive(ser: serial.Serial, pkt: bytes, max_chunk: int):
+    if not pkt:
+        return
+    write_chunk = max_chunk if max_chunk > 0 else len(pkt)
+    if write_chunk > USB_WRITE_MAX_CHUNK:
+        write_chunk = USB_WRITE_MAX_CHUNK
+    for off in range(0, len(pkt), write_chunk):
+        ser.write(pkt[off:off + write_chunk])
+        try:
+            if ser.out_waiting > USB_OUT_WAITING_HIGH_WATER:
+                time.sleep(USB_OUT_WAITING_SLEEP_S)
+        except Exception:
+            pass
+
+
+def serial_wait_pong(
+    parser: "PacketParser",
+    ser: serial.Serial,
+    expect_seq: int,
+    timeout_s: float,
+    pump_cb=None,
+) -> bool:
+    t_end = time.perf_counter() + float(timeout_s)
+    while time.perf_counter() < t_end:
+        if pump_cb is not None:
+            try:
+                pump_cb()
+            except Exception:
+                pass
+        try:
+            n = int(getattr(ser, "in_waiting", 0) or 0)
+        except Exception:
+            n = 0
+        if n <= 0:
+            time.sleep(0.001)
+            continue
+        data = ser.read(n)
+        if data:
+            parser.feed(data)
+            for pkt_type, seq, payload in parser.iter_packets():
+                if pkt_type == TYPE_PONG and seq == (expect_seq & 0xFFFF):
+                    if payload and payload[0] == 1:
+                        return True
+        else:
+            time.sleep(0.001)
+    return False
 
 
 def rgb_to_qimage(frame_rgb: np.ndarray) -> QImage:
@@ -353,15 +494,70 @@ def _drain_stream(stream):
 class SpectrumAnalyzer:
     def __init__(self):
         self.window = np.hanning(NFFT).astype(np.float32)
-        freqs = np.fft.rfftfreq(NFFT, d=1.0 / SAMPLE_RATE)
-        self.bin_ranges = []
-        for i in range(12):
-            lo = np.searchsorted(freqs, EDGES_HZ[i], side="left")
-            hi = np.searchsorted(freqs, EDGES_HZ[i + 1], side="left")
-            self.bin_ranges.append((lo, hi))
+        self.freqs = np.fft.rfftfreq(NFFT, d=1.0 / SAMPLE_RATE)
+
+        self.edges_acg = self._clamp_edges(EDGES_HZ_ACG)
+        self.edges_edm = self._clamp_edges(EDGES_HZ_EDM)
+        self.edges_now = list(self.edges_acg)
+        self.bin_ranges = self._build_bin_ranges(self.edges_now)
+
+        self._genre = "ACG"
+        self._edm_score_ema = 0.0
+        self._switch_cooldown = 0
         self.peak_ema = 0.15
         self.smooth = np.zeros(12, dtype=np.float32)
         self.peaks = np.zeros(12, dtype=np.float32)
+
+    def _clamp_edges(self, edges):
+        edges_i = [int(x) for x in list(edges)]
+        if len(edges_i) != 13:
+            raise ValueError("edges must have 13 elements")
+        nyq = float(SAMPLE_RATE) * 0.5
+        max_last = int(0.95 * nyq)
+        if edges_i[-1] > max_last:
+            edges_i[-1] = max_last
+        # Ensure strictly increasing; push forward by at least +1 Hz.
+        for i in range(1, len(edges_i)):
+            if edges_i[i] <= edges_i[i - 1]:
+                edges_i[i] = edges_i[i - 1] + 1
+        return edges_i
+
+    def _build_bin_ranges(self, edges):
+        freqs = self.freqs
+        n = int(freqs.size)
+        out = []
+        for i in range(12):
+            lo = int(np.searchsorted(freqs, float(edges[i]), side="left"))
+            hi = int(np.searchsorted(freqs, float(edges[i + 1]), side="left"))
+            # Clamp to [0, n]
+            if lo < 0:
+                lo = 0
+            if hi < 0:
+                hi = 0
+            if lo > n:
+                lo = n
+            if hi > n:
+                hi = n
+            # Ensure at least 1 bin (robustness)
+            if lo >= n:
+                lo = max(0, n - 1)
+            if hi <= lo:
+                hi = min(lo + 1, n)
+            out.append((lo, hi))
+        return out
+
+    def _set_genre(self, genre: str):
+        global EDGES_HZ
+        if genre == self._genre:
+            return
+        if genre == "EDM":
+            self.edges_now = list(self.edges_edm)
+            self._genre = "EDM"
+        else:
+            self.edges_now = list(self.edges_acg)
+            self._genre = "ACG"
+        self.bin_ranges = self._build_bin_ranges(self.edges_now)
+        EDGES_HZ = list(self.edges_now)
 
     def process(self, samples: np.ndarray):
         if samples.size == 0:
@@ -382,6 +578,59 @@ class SpectrumAnalyzer:
             if count == 0:
                 count = 1
             power_avg = power_sum / float(count)
+
+        # Lightweight genre classifier (ACG vs EDM) from the mean power spectrum.
+        # Uses bass/treble ratios vs mid and a normalized spectral centroid.
+        freqs = self.freqs
+        nyq = float(SAMPLE_RATE) * 0.5
+
+        def _mean_band(f_lo: float, f_hi: float) -> float:
+            lo = int(np.searchsorted(freqs, f_lo, side="left"))
+            hi = int(np.searchsorted(freqs, f_hi, side="left"))
+            n = int(freqs.size)
+            if lo < 0:
+                lo = 0
+            if hi < 0:
+                hi = 0
+            if lo > n:
+                lo = n
+            if hi > n:
+                hi = n
+            if lo >= n:
+                lo = max(0, n - 1)
+            if hi <= lo:
+                hi = min(lo + 1, n)
+            return float(np.mean(power_avg[lo:hi]))
+
+        mid = _mean_band(300.0, 3000.0) + 1e-12
+        bass = _mean_band(30.0, 160.0)
+        treble = _mean_band(5000.0, 12000.0)
+        bass_ratio = bass / mid
+        treble_ratio = treble / mid
+
+        p_sum = float(np.sum(power_avg)) + 1e-12
+        centroid = float(np.sum(freqs * power_avg) / p_sum)
+        centroid_n = centroid / max(nyq, 1.0)
+
+        score = (
+            0.85 * np.tanh(1.6 * (bass_ratio - 0.9))
+            + 0.55 * np.tanh(2.0 * (treble_ratio - 0.25))
+            + 0.40 * np.tanh(6.0 * (centroid_n - 0.18))
+        )
+        self._edm_score_ema = 0.95 * self._edm_score_ema + 0.05 * float(score)
+
+        # Switching logic with hysteresis + cooldown.
+        if self._switch_cooldown > 0:
+            self._switch_cooldown -= 1
+        else:
+            if self._genre == "ACG":
+                if self._edm_score_ema > 0.25:
+                    self._set_genre("EDM")
+                    self._switch_cooldown = 30
+            else:
+                if self._edm_score_ema < -0.05:
+                    self._set_genre("ACG")
+                    self._switch_cooldown = 30
 
         band_power = np.zeros(12, dtype=np.float32)
         for i, (lo, hi) in enumerate(self.bin_ranges):
@@ -486,6 +735,7 @@ class StreamWorker(QThread):
         udp_sock = None
         frame_w = int(cfg.frame_width)
         frame_h = int(cfg.frame_height)
+        # NOTE: actual frame byte size depends on pixel format.
         frame_bytes_size = frame_w * frame_h * 2
         log_tx = bool(cfg.log_tx)
         use_udp = bool(cfg.use_udp)
@@ -531,11 +781,43 @@ class StreamWorker(QThread):
         parser = PacketParser() if (not use_udp) else None
         analyzer = SpectrumAnalyzer()
 
+        last_audio_t = time.perf_counter()
+        last_bands_val = np.zeros(12, dtype=np.uint8)
+        last_bands_peak = np.zeros(12, dtype=np.uint8)
+        last_peak_ema = 0.15
+
+        def pump_audio():
+            nonlocal last_audio_t, last_bands_val, last_bands_peak, last_peak_ema
+            now_t = time.perf_counter()
+            dt = now_t - last_audio_t
+            if dt < float(AUDIO_PUMP_MIN_S):
+                return
+            n_samples = int(dt * float(SAMPLE_RATE))
+            if n_samples <= 0:
+                return
+            if n_samples > int(AUDIO_PUMP_MAX_SAMPLES):
+                n_samples = int(AUDIO_PUMP_MAX_SAMPLES)
+            samples = audio.read_samples(n_samples)
+            last_audio_t = now_t
+            bands_val, bands_peak, peak_ema = analyzer.process(samples)
+            last_bands_val = bands_val
+            last_bands_peak = bands_peak
+            last_peak_ema = float(peak_ema)
+            if samples.size:
+                pcm = np.clip(samples, -1.0, 1.0)
+                pcm = (pcm * 32767.0).astype(np.int16)
+                self.audio_ready.emit(pcm.tobytes())
+
         src_fps = detect_video_fps(cfg.video_path)
         if src_fps is None or src_fps <= 1.0:
             fps_current = float(cfg.fps_max)
         else:
             fps_current = float(src_fps)
+
+        # Serial full-frame streaming can easily overrun the device if fps is too high.
+        if (not use_udp) and (frame_w == WIDTH and frame_h == HEIGHT):
+            fps_current = min(fps_current, float(cfg.fps_max), float(SERIAL_FULLFRAME_FPS_CAP))
+
         frame_interval = 1.0 / max(fps_current, 1.0)
         next_deadline = time.perf_counter()
         last_ping = time.perf_counter()
@@ -545,10 +827,10 @@ class StreamWorker(QThread):
         self.started_ok.emit()
         if use_udp:
             self._log(f"UDP 发送到 {cfg.udp_host}:{cfg.udp_port}")
-            self._log(f"开始发送: {frame_w}x{frame_h} RGB565 + 音频频谱。")
+            self._log(f"开始发送: {frame_w}x{frame_h}（80x160 默认 RGB332，无抖动）+ 音频频谱。")
         else:
             self._log(f"串口已打开: {cfg.port}, fps_max={cfg.fps_max}, chunk={cfg.chunk}, swap_endian={cfg.swap_endian}")
-            self._log(f"开始传输: {frame_w}x{frame_h} RGB565 + 音频频谱。")
+            self._log(f"开始传输: {frame_w}x{frame_h}（80x160 默认 RGB332，无抖动）+ 音频频谱。")
         if rotate_cw:
             self._log("竖屏视频：逆时针旋转 90° 转横屏，再缩放。")
         else:
@@ -563,21 +845,14 @@ class StreamWorker(QThread):
 
                     frame_begin = time.perf_counter()
 
-                    frame_samples = int(round(SAMPLE_RATE / max(fps_current, 1.0)))
-                    samples = audio.read_samples(frame_samples)
-                    bands_val, bands_peak, peak_ema = analyzer.process(samples)
-                    if samples.size:
-                        pcm = np.clip(samples, -1.0, 1.0)
-                        pcm = (pcm * 32767.0).astype(np.int16)
-                        self.audio_ready.emit(pcm.tobytes())
+                    # Keep audio smooth regardless of video pacing.
+                    pump_audio()
+                    bands_val, bands_peak, peak_ema = last_bands_val, last_bands_peak, last_peak_ema
 
                     if use_bgr:
                         if frame is None or frame.size == 0:
                             continue
-                        preview_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                        if rotate_cw:
-                            preview_rgb = np.rot90(preview_rgb, -1)
-                        frame_bytes, _ = prepare_bgr_frame(
+                        frame_bytes, preview_rgb = prepare_bgr_frame(
                             frame,
                             cfg.swap_endian,
                             frame_w,
@@ -585,10 +860,7 @@ class StreamWorker(QThread):
                             rotate_cw,
                         )
                     else:
-                        preview_rgb = frame
-                        if rotate_cw:
-                            preview_rgb = np.rot90(preview_rgb, -1)
-                        frame_bytes, _ = prepare_rgb_frame(
+                        frame_bytes, preview_rgb = prepare_rgb_frame(
                             frame,
                             cfg.swap_endian,
                             frame_w,
@@ -596,21 +868,78 @@ class StreamWorker(QThread):
                             rotate_cw,
                         )
 
-                    payload = (
-                        struct.pack("<BBB", frame_w, frame_h, PIX_FMT_RGB565)
-                        + bytes(bands_val)
-                        + frame_bytes
-                    )
-                    pkt = build_packet(TYPE_FRAME_SMALL, seq, payload)
-                    if use_udp:
-                        udp_sock.sendto(pkt, (cfg.udp_host, cfg.udp_port))
+                    # Decide protocol/pixfmt:
+                    # - Legacy FRAME_SMALL is kept only for 20x40 RGB565.
+                    # - Full/specified resolution uses FRAME_START + FRAME_DATA.
+                    use_legacy_small = (frame_w == 20 and frame_h == 40)
+                    use_rgb332 = (frame_w == WIDTH and frame_h == HEIGHT)
+
+                    if use_legacy_small:
+                        payload = (
+                            struct.pack("<BBB", frame_w, frame_h, PIX_FMT_RGB565)
+                            + bytes(bands_val)
+                            + frame_bytes
+                        )
+                        pkt = build_packet(TYPE_FRAME_SMALL, seq, payload)
+                        if use_udp:
+                            udp_sock.sendto(pkt, (cfg.udp_host, cfg.udp_port))
+                        else:
+                            serial_write_packet_adaptive(ser, pkt, cfg.chunk)
+                        if log_tx:
+                            self._log(f"TX FRAME_SMALL {len(pkt)}B: {pkt[:48].hex()}")
+                        bytes_accum += len(pkt)
                     else:
-                        for off in range(0, len(pkt), USB_TX_CHUNK):
-                            ser.write(pkt[off:off + USB_TX_CHUNK])
-                            time.sleep(USB_TX_GAP_S)
-                    if log_tx:
-                        self._log(f"TX FRAME_SMALL {len(pkt)}B: {pkt[:48].hex()}")
-                    bytes_accum += len(pkt)
+                        if use_rgb332:
+                            pixfmt = PIX_FMT_RGB332
+                            frame_payload_bytes = rgb_to_rgb332(preview_rgb)
+                            frame_bytes_size = (frame_w * frame_h)
+                        else:
+                            pixfmt = PIX_FMT_RGB565
+                            frame_payload_bytes = frame_bytes
+                            frame_bytes_size = frame_w * frame_h * 2
+
+                        flags = 0
+                        start_payload = (
+                            struct.pack("<BBBH", frame_w, frame_h, pixfmt, frame_bytes_size)
+                            + bytes(bands_val)
+                            + bytes(bands_peak)
+                            + struct.pack("<B", flags)
+                        )
+                        pkt0 = build_packet(TYPE_FRAME_START, seq, start_payload)
+                        if use_udp:
+                            udp_sock.sendto(pkt0, (cfg.udp_host, cfg.udp_port))
+                        else:
+                            serial_write_packet_adaptive(ser, pkt0, cfg.chunk)
+                        bytes_accum += len(pkt0)
+
+                        for off in range(0, len(frame_payload_bytes), cfg.chunk):
+                            frag = frame_payload_bytes[off:off + cfg.chunk]
+                            pkt1 = build_packet(TYPE_FRAME_DATA, seq, frag)
+                            if use_udp:
+                                udp_sock.sendto(pkt1, (cfg.udp_host, cfg.udp_port))
+                            else:
+                                serial_write_packet_adaptive(ser, pkt1, cfg.chunk)
+                            bytes_accum += len(pkt1)
+
+                        if log_tx:
+                            self._log(f"TX FRAME_START/DATA pixfmt={pixfmt} bytes={frame_bytes_size}")
+
+                        # Give the device time to drain the USB/CDC pipe before starting next frame.
+                        if (not use_udp) and (pixfmt == PIX_FMT_RGB332):
+                            t_end = time.perf_counter() + float(SERIAL_FRAME_DRAIN_TIMEOUT_S)
+                            while time.perf_counter() < t_end:
+                                pump_audio()
+                                try:
+                                    if ser.out_waiting <= int(SERIAL_FRAME_DRAIN_HIGH_WATER):
+                                        break
+                                except Exception:
+                                    break
+                                time.sleep(USB_OUT_WAITING_SLEEP_S)
+
+                            if SERIAL_WAIT_PONG and parser is not None:
+                                ok = serial_wait_pong(parser, ser, seq, SERIAL_PONG_TIMEOUT_S, pump_cb=pump_audio)
+                                if (not ok) and log_tx:
+                                    self._log(f"WARN: PONG timeout for seq={seq}")
 
                     if self._stop_req:
                         self._log("Stop requested, sending STOP...")
@@ -641,7 +970,14 @@ class StreamWorker(QThread):
                     next_deadline += frame_interval
                     sleep_time = next_deadline - time.perf_counter()
                     if sleep_time > 0:
-                        time.sleep(sleep_time)
+                        # Sleep in small slices so audio continues smoothly.
+                        t_end = time.perf_counter() + sleep_time
+                        while True:
+                            pump_audio()
+                            now2 = time.perf_counter()
+                            if now2 >= t_end:
+                                break
+                            time.sleep(min(0.010, t_end - now2))
                     else:
                         next_deadline = time.perf_counter()
 
@@ -990,7 +1326,7 @@ class MainWindow(QMainWindow):
         self.chunk_spin = QSpinBox()
         self.chunk_spin.setRange(256, 4096)
         self.chunk_spin.setSingleStep(256)
-        self.chunk_spin.setValue(1024)
+        self.chunk_spin.setValue(256)
 
         self.swap_chk = QCheckBox("RGB565 字节交换 (MSB 优先)")
         self.swap_chk.setChecked(True)
@@ -1136,7 +1472,7 @@ class MainWindow(QMainWindow):
         if not keep_video:
             self.video_edit.setText("")
         self.fps_spin.setValue(60.0)
-        self.chunk_spin.setValue(1024)
+        self.chunk_spin.setValue(256)
         self.swap_chk.setChecked(True)
         self.log_tx_chk.setChecked(False)
         self.label_fps.setText("帧率: --")
@@ -1194,8 +1530,9 @@ class MainWindow(QMainWindow):
         if not port:
             QMessageBox.warning(self, "错误", "请选择有效的串口。")
             return
-        frame_w = FRAME_W
-        frame_h = FRAME_H
+        # 强制全屏 80x160（不再使用 20x40 legacy 路径）
+        frame_w = WIDTH
+        frame_h = HEIGHT
         use_udp = (port == "__SIM__")
         if use_udp:
             self.on_open_simulator()
