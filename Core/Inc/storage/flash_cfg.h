@@ -1,8 +1,8 @@
-/* USER CODE BEGIN Header */
+﻿/* USER CODE BEGIN Header */
 /**
   ******************************************************************************
   * @file           : flash_cfg.h
-  * @brief          : Flash 配置日志存储接口
+  * @brief          : Flash config log storage interface
   ******************************************************************************
   */
 /* USER CODE END Header */

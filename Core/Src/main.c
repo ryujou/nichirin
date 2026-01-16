@@ -59,7 +59,7 @@ static void MX_I2C1_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-/* 此处可放置用户私有函数或全局变量 */
+/* Place user private functions or global variables here. */
 /* USER CODE END 0 */
 
 /**
@@ -70,7 +70,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-  /* 可在此添加早期用户初始化 */
+  /* Add early user initialization here. */
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -93,16 +93,16 @@ int main(void)
   MX_GPIO_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
-  /* CubeMX 引脚提示: I2C1 SCL=PB3, SDA=PB7，与 TLC59116 硬件一致。 */
+  /* CubeMX pinout reminder: set I2C1 SCL=PB3, SDA=PB7 to match TLC59116 wiring. */
 
-  /* 初始化 LED 驱动与编码器采样 */
+  /* Initialize LED driver and encoder sampling. */
   (void)TLC59116_Init(&hi2c1);
   Encoder_Init(ENC_A_GPIO_Port, ENC_A_Pin,
                ENC_B_GPIO_Port, ENC_B_Pin,
                ENC_K_GPIO_Port, ENC_K_Pin);
   App_Init();
 
-  /* 读取掉电记忆并应用，必要时写入默认配置 */
+  /* Load persisted config and apply; write defaults if missing. */
   {
     Config cfg;
     if (FlashCfg_Load(&cfg))
@@ -117,7 +117,7 @@ int main(void)
     }
   }
 
-  /* 先输出一帧，避免上电空白 */
+  /* Send an initial frame to avoid blank output. */
   Effect_Tick();
 
   /* USER CODE END 2 */
@@ -129,7 +129,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    /* 10ms 节拍驱动应用逻辑 */
+    /* 10 ms tick to drive application logic. */
     static uint32_t last_tick = 0U;
     uint32_t now = HAL_GetTick();
     if ((now - last_tick) >= EFFECT_TICK_MS)
@@ -264,7 +264,7 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void HAL_SYSTICK_Callback(void)
 {
-  /* 1ms 采样编码器与按键去抖 */
+  /* 1 ms encoder sampling and debounce. */
   Encoder_1msTick();
 }
 

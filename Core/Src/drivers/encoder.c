@@ -1,8 +1,8 @@
-/* USER CODE BEGIN Header */
+﻿/* USER CODE BEGIN Header */
 /**
   ******************************************************************************
   * @file           : encoder.c
-  * @brief          : 旋转编码器采样与按键事件
+  * @brief          : Rotary encoder sampling and key events
   ******************************************************************************
   */
 /* USER CODE END Header */
@@ -10,7 +10,7 @@
 
 #define ENCODER_DEBOUNCE_MAX 8U
 #define ENCODER_LONGPRESS_MS 600U
-/* 全步进编码器取 4，半步进编码器取 2。 */
+/* Use 4 for full-step encoders, or 2 for half-step encoders. */
 #define ENCODER_EDGES_PER_STEP 4
 
 static GPIO_TypeDef *s_a_port;
@@ -30,10 +30,10 @@ static uint8_t s_key_long_fired;
 static volatile EncoderEvent s_key_event;
 static uint8_t s_initialized;
 
-/* 函数: Encoder_ReadAB
- * 功能: 读取 A/B 电平组成 2-bit 状态。
- * 输入: 无 (使用已配置 GPIO)。
- * 输出: 2-bit 状态: bit1=A, bit0=B。
+/* Function: Encoder_ReadAB
+ * Purpose: Read current A/B GPIO levels as a 2-bit state.
+ * Inputs: None (uses configured GPIO).
+ * Outputs: 2-bit state: bit1=A, bit0=B.
  */
 static uint8_t Encoder_ReadAB(void)
 {
@@ -42,20 +42,20 @@ static uint8_t Encoder_ReadAB(void)
   return (uint8_t)((a << 1U) | b);
 }
 
-/* 函数: Encoder_ReadKeyPressed
- * 功能: 读取编码器按键电平并转换为按下/松开。
- * 输入: 无 (使用已配置 GPIO)。
- * 输出: 按下返回 1，松开返回 0。
+/* Function: Encoder_ReadKeyPressed
+ * Purpose: Read the encoder key level and convert to pressed/released.
+ * Inputs: None (uses configured GPIO).
+ * Outputs: 1 if pressed, 0 if released.
  */
 static uint8_t Encoder_ReadKeyPressed(void)
 {
   return (HAL_GPIO_ReadPin(s_k_port, s_k_pin) == GPIO_PIN_RESET) ? 1U : 0U;
 }
 
-/* 函数: Encoder_Init
- * 功能: 初始化编码器 GPIO 绑定与内部状态。
- * 输入: a_port/a_pin, b_port/b_pin, k_port/k_pin - GPIO 映射。
- * 输出: 无 (初始化模块状态)。
+/* Function: Encoder_Init
+ * Purpose: Initialize encoder GPIO bindings and internal state.
+ * Inputs: a_port/a_pin, b_port/b_pin, k_port/k_pin - GPIO mapping.
+ * Outputs: None (initializes module state).
  */
 void Encoder_Init(GPIO_TypeDef *a_port, uint16_t a_pin,
                   GPIO_TypeDef *b_port, uint16_t b_pin,
@@ -79,10 +79,10 @@ void Encoder_Init(GPIO_TypeDef *a_port, uint16_t a_pin,
   s_initialized = 1U;
 }
 
-/* 函数: Encoder_1msTick
- * 功能: 每 1 ms 采样 A/B 和按键，更新增量与事件。
- * 输入: 无 (读取 GPIO)。
- * 输出: 无 (更新内部累加器)。
+/* Function: Encoder_1msTick
+ * Purpose: Sample A/B and key every 1 ms to update delta/events.
+ * Inputs: None (reads GPIO).
+ * Outputs: None (updates internal accumulators).
  */
 void Encoder_1msTick(void)
 {
@@ -175,10 +175,10 @@ void Encoder_1msTick(void)
   }
 }
 
-/* 函数: Encoder_GetDelta
- * 功能: 读取并清零累计的步进增量。
- * 输入: 无。
- * 输出: 自上次调用以来的步进增量。
+/* Function: Encoder_GetDelta
+ * Purpose: Fetch and clear the accumulated detent delta.
+ * Inputs: None.
+ * Outputs: Signed delta (steps) since last call.
  */
 int8_t Encoder_GetDelta(void)
 {
@@ -190,10 +190,10 @@ int8_t Encoder_GetDelta(void)
   return delta;
 }
 
-/* 函数: Encoder_GetKeyEvent
- * 功能: 读取并清零按键事件。
- * 输入: 无。
- * 输出: EncoderEvent (无/单击/长按)。
+/* Function: Encoder_GetKeyEvent
+ * Purpose: Fetch and clear the last key event.
+ * Inputs: None.
+ * Outputs: EncoderEvent (none/click/longpress).
  */
 EncoderEvent Encoder_GetKeyEvent(void)
 {

@@ -1,8 +1,8 @@
-/* USER CODE BEGIN Header */
+﻿/* USER CODE BEGIN Header */
 /**
   ******************************************************************************
   * @file           : tlc59116.h
-  * @brief          : TLC59116 16 路 LED 驱动接口 (I2C)
+  * @brief          : TLC59116 16-channel LED driver interface (I2C)
   ******************************************************************************
   */
 /* USER CODE END Header */

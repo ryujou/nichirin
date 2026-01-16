@@ -1,8 +1,8 @@
-/* USER CODE BEGIN Header */
+﻿/* USER CODE BEGIN Header */
 /**
   ******************************************************************************
   * @file           : encoder.h
-  * @brief          : 旋转编码器采样与按键事件接口
+  * @brief          : Rotary encoder sampling and key event interface
   ******************************************************************************
   */
 /* USER CODE END Header */

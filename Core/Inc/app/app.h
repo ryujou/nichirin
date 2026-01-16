@@ -1,8 +1,8 @@
-/* USER CODE BEGIN Header */
+﻿/* USER CODE BEGIN Header */
 /**
   ******************************************************************************
   * @file           : app.h
-  * @brief          : 模式/参数/效果的应用接口
+  * @brief          : Application interface for modes, params, and effects
   ******************************************************************************
   */
 /* USER CODE END Header */

@@ -1,29 +1,29 @@
-/* USER CODE BEGIN Header */
+﻿/* USER CODE BEGIN Header */
 /**
   ******************************************************************************
   * @file           : flash_cfg.c
-  * @brief          : Flash 配置日志存储
+  * @brief          : Log-structured flash config storage
   ******************************************************************************
   *
-  * 记录布局 (64 bytes, 对齐, 追加写):
+  * Record layout (64 bytes, aligned, append-only):
   * [0..3]   magic (0x31474643 'CFG1')
   * [4..5]   version
   * [6..7]   length (payload bytes)
-  * [8..11]  seq (单调递增)
-  * [12..59] payload (Config, 0xFF 填充)
-  * [60..63] crc32 (计算 [0..59] 字节)
+  * [8..11]  seq (monotonic)
+  * [12..59] payload (Config, padded with 0xFF)
+  * [60..63] crc32 over bytes [0..59]
   *
-  * 提交机制:
-  * - 先写除最后一个双字之外的所有双字
-  * - 最后一个双字包含 CRC，最后写入
+  * Commit mechanism:
+  * - Program all double-words except the last one first.
+  * - The last double-word contains the CRC and is written last.
   *
-  * 页选择:
-  * - 使用两页滚动日志
-  * - 当前页满时擦除另一页并切换
+  * Page selection:
+  * - Two pages are used as a rolling log.
+  * - When active page is full, erase the other page and switch.
   *
-  * 页地址:
-  * - 默认适配 STM32G030F6 (32KB Flash, 2KB 页)
-  * - 根据 MCU 调整 CFG_PAGE0_ADDR/CFG_PAGE1_ADDR
+  * Page addresses:
+  * - Defaults target STM32G030F6 (32 KB flash, 2 KB page).
+  * - Update CFG_PAGE0_ADDR/CFG_PAGE1_ADDR to the last two pages for your MCU.
   *
   ******************************************************************************
   */
@@ -58,10 +58,10 @@ _Static_assert(sizeof(Config) <= (CFG_CRC_OFFSET - CFG_HEADER_SIZE), "Config too
 static uint32_t g_active_page = CFG_PAGE0_ADDR;
 static uint32_t g_next_seq = 1U;
 
-/* 函数: Crc32_Calc
- * 功能: 计算字节缓冲区的 CRC32。
- * 输入: data - 字节缓冲区, len - 字节数。
- * 输出: CRC32 结果。
+/* Function: Crc32_Calc
+ * Purpose: Compute CRC32 over a byte buffer.
+ * Inputs: data - byte buffer, len - number of bytes.
+ * Outputs: CRC32 value.
  */
 static uint32_t Crc32_Calc(const uint8_t *data, uint32_t len)
 {
@@ -84,10 +84,10 @@ static uint32_t Crc32_Calc(const uint8_t *data, uint32_t len)
   return crc;
 }
 
-/* 函数: Slot_IsEmpty
- * 功能: 判断 Flash 槽是否为空 (全 0xFF)。
- * 输入: addr - 槽起始地址。
- * 输出: 为空返回 true，否则 false。
+/* Function: Slot_IsEmpty
+ * Purpose: Check if a flash slot is erased (all 0xFF).
+ * Inputs: addr - start address of slot.
+ * Outputs: true if empty, false otherwise.
  */
 static bool Slot_IsEmpty(uint32_t addr)
 {
@@ -102,10 +102,10 @@ static bool Slot_IsEmpty(uint32_t addr)
   return true;
 }
 
-/* 函数: Find_EmptySlot
- * 功能: 在指定页内查找第一个空槽。
- * 输入: page_addr - 页基地址。
- * 输出: 槽索引，满页返回 -1。
+/* Function: Find_EmptySlot
+ * Purpose: Find the first empty slot in a flash page.
+ * Inputs: page_addr - base address of the page.
+ * Outputs: slot index, or -1 if full.
  */
 static int32_t Find_EmptySlot(uint32_t page_addr)
 {
@@ -120,10 +120,10 @@ static int32_t Find_EmptySlot(uint32_t page_addr)
   return -1;
 }
 
-/* 函数: Read_Record
- * 功能: 校验并解析 Flash 中的一条记录。
- * 输入: addr - 记录地址, out - 输出配置, seq_out - 输出序号。
- * 输出: 记录有效返回 true，否则 false。
+/* Function: Read_Record
+ * Purpose: Validate and parse a record from flash.
+ * Inputs: addr - record address, out - config output, seq_out - sequence output.
+ * Outputs: true if valid record, false otherwise.
  */
 static bool Read_Record(uint32_t addr, Config *out, uint32_t *seq_out)
 {
@@ -163,10 +163,10 @@ static bool Read_Record(uint32_t addr, Config *out, uint32_t *seq_out)
   return true;
 }
 
-/* 函数: Erase_Page
- * 功能: 擦除一个 Flash 页。
- * 输入: page_addr - 页基地址。
- * 输出: 成功返回 true，失败返回 false。
+/* Function: Erase_Page
+ * Purpose: Erase a single flash page.
+ * Inputs: page_addr - base address of the page.
+ * Outputs: true on success, false on failure.
  */
 static bool Erase_Page(uint32_t page_addr)
 {
@@ -185,10 +185,10 @@ static bool Erase_Page(uint32_t page_addr)
   return true;
 }
 
-/* 函数: Program_Record
- * 功能: 将 64 字节记录写入 Flash。
- * 输入: addr - 目标地址, record - 记录数据。
- * 输出: 成功返回 true，失败返回 false。
+/* Function: Program_Record
+ * Purpose: Program a 64-byte record into flash.
+ * Inputs: addr - destination address, record - record data.
+ * Outputs: true on success, false on failure.
  */
 static bool Program_Record(uint32_t addr, const uint8_t *record)
 {
@@ -215,10 +215,10 @@ static bool Program_Record(uint32_t addr, const uint8_t *record)
   return true;
 }
 
-/* 函数: FlashCfg_InitDefaults
- * 功能: 初始化默认配置。
- * 输入: out - 配置输出结构。
- * 输出: 无 (写入 out)。
+/* Function: FlashCfg_InitDefaults
+ * Purpose: Initialize default configuration values.
+ * Inputs: out - config output structure.
+ * Outputs: None (writes to out).
  */
 void FlashCfg_InitDefaults(Config *out)
 {
@@ -234,10 +234,10 @@ void FlashCfg_InitDefaults(Config *out)
   out->param_level[0] = 0U;
 }
 
-/* 函数: FlashCfg_Load
- * 功能: 从 Flash 日志读取最新有效配置。
- * 输入: out - 配置输出结构。
- * 输出: 找到并加载返回 true。
+/* Function: FlashCfg_Load
+ * Purpose: Load the latest valid config from flash log.
+ * Inputs: out - config output structure.
+ * Outputs: true if a record was found and loaded.
  */
 bool FlashCfg_Load(Config *out)
 {
@@ -286,10 +286,10 @@ bool FlashCfg_Load(Config *out)
   return found;
 }
 
-/* 函数: FlashCfg_Append
- * 功能: 追加一条配置记录到 Flash 日志。
- * 输入: in - 配置输入结构。
- * 输出: 成功返回 true，失败返回 false。
+/* Function: FlashCfg_Append
+ * Purpose: Append a config record to the flash log.
+ * Inputs: in - config input structure.
+ * Outputs: true on success, false on failure.
  */
 bool FlashCfg_Append(const Config *in)
 {

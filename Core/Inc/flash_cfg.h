@@ -1,8 +1,8 @@
-/* USER CODE BEGIN Header */
+﻿/* USER CODE BEGIN Header */
 /**
   ******************************************************************************
   * @file           : flash_cfg.h
-  * @brief          : storage/flash_cfg.h 兼容性包装
+  * @brief          : Compatibility wrapper for storage/flash_cfg.h
   ******************************************************************************
   */
 /* USER CODE END Header */

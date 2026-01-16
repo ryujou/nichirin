@@ -1,8 +1,8 @@
-/* USER CODE BEGIN Header */
+﻿/* USER CODE BEGIN Header */
 /**
   ******************************************************************************
   * @file           : app.c
-  * @brief          : 模式/参数/效果的应用逻辑
+  * @brief          : Application logic for modes, params, and effects
   ******************************************************************************
   */
 /* USER CODE END Header */
@@ -51,10 +51,10 @@ static uint8_t param_level[10] = {0};
 static uint8_t param_speed_idx = 0U;
 static uint16_t flash_period = 0U;
 
-/* 函数: Map_Param_To_Ms
- * 功能: 将 0..255 参数映射到时间范围 (0 -> max_ms, 255 -> min_ms)。
- * 输入: param - 0..255 参数; min_ms/max_ms - 时间边界。
- * 输出: 映射后的毫秒值。
+/* Function: Map_Param_To_Ms
+ * Purpose: Map a 0..255 parameter to a time range (0 -> max_ms, 255 -> min_ms).
+ * Inputs: param - 0..255 parameter; min_ms/max_ms - range bounds.
+ * Outputs: Mapped time in milliseconds.
  */
 static uint16_t Map_Param_To_Ms(uint8_t param, uint16_t min_ms, uint16_t max_ms)
 {
@@ -69,10 +69,10 @@ static uint16_t Map_Param_To_Ms(uint8_t param, uint16_t min_ms, uint16_t max_ms)
   }
 }
 
-/* 函数: Clamp_U8
- * 功能: 将有符号值钳位到 0..255 范围。
- * 输入: value - 需要钳位的有符号整数。
- * 输出: 0..255 的 uint8_t。
+/* Function: Clamp_U8
+ * Purpose: Clamp a signed value to the 0..255 range.
+ * Inputs: value - signed integer to clamp.
+ * Outputs: uint8_t clamped to [0, 255].
  */
 static uint8_t Clamp_U8(int32_t value)
 {
@@ -87,10 +87,10 @@ static uint8_t Clamp_U8(int32_t value)
   return (uint8_t)value;
 }
 
-/* 函数: Breath_Triangle
- * 功能: 将相位 [0, BREATH_CYCLE) 映射为 0..255 三角波。
- * 输入: phase - 三角波相位。
- * 输出: 0..255 幅度。
+/* Function: Breath_Triangle
+ * Purpose: Generate a 0..255 triangle wave from a phase in [0, BREATH_CYCLE).
+ * Inputs: phase - triangle wave phase.
+ * Outputs: uint8_t triangle amplitude.
  */
 static uint8_t Breath_Triangle(uint16_t phase)
 {
@@ -98,20 +98,20 @@ static uint8_t Breath_Triangle(uint16_t phase)
   return (uint8_t)tri;
 }
 
-/* 函数: Apply_CmdToDutyNext
- * 功能: 将当前 12 路 PWM 命令发送给 TLC59116。
- * 输入: cmd - 12 路 LED PWM 值 (0..255)。
- * 输出: 无 (I2C 写入副作用)。
+/* Function: Apply_CmdToDutyNext
+ * Purpose: Send current 12-channel PWM command to the TLC59116.
+ * Inputs: cmd - array of LED PWM values (0..255).
+ * Outputs: None (I2C write side effects).
  */
 static void Apply_CmdToDutyNext(const uint8_t cmd[LED_COUNT])
 {
   (void)TLC59116_SetPWM12(cmd);
 }
 
-/* 函数: Save_Config_Now
- * 功能: 打包并追加当前配置到 Flash 日志。
- * 输入: 无 (使用当前状态变量)。
- * 输出: 无 (Flash 写入副作用)。
+/* Function: Save_Config_Now
+ * Purpose: Pack and append the current config to flash log.
+ * Inputs: None (uses current state variables).
+ * Outputs: None (flash write side effects).
  */
 static void Save_Config_Now(void)
 {
@@ -132,10 +132,10 @@ static void Save_Config_Now(void)
   __enable_irq();
 }
 
-/* 函数: App_Init
- * 功能: 加载 Flash 前初始化运行时默认状态。
- * 输入: 无。
- * 输出: 无 (初始化模块状态)。
+/* Function: App_Init
+ * Purpose: Initialize runtime state to defaults before loading flash config.
+ * Inputs: None.
+ * Outputs: None (initializes module state).
  */
 void App_Init(void)
 {
@@ -161,10 +161,10 @@ void App_Init(void)
   param_level[0] = 0U;
 }
 
-/* 函数: Apply_Config
- * 功能: 将持久化配置应用到运行时状态。
- * 输入: cfg - 从 Flash 读取的配置指针。
- * 输出: 无 (更新模块状态)。
+/* Function: Apply_Config
+ * Purpose: Apply persisted config values to runtime state.
+ * Inputs: cfg - pointer to configuration loaded from flash.
+ * Outputs: None (updates module state).
  */
 void Apply_Config(const Config *cfg)
 {
@@ -211,10 +211,10 @@ void Apply_Config(const Config *cfg)
   }
 }
 
-/* 函数: Effect_Tick
- * 功能: 10 ms 节拍更新输入状态与 LED 效果。
- * 输入: 无。
- * 输出: 无 (更新模式状态并输出 PWM 到 TLC59116)。
+/* Function: Effect_Tick
+ * Purpose: 10 ms tick handler to update input state and LED effects.
+ * Inputs: None.
+ * Outputs: None (updates mode state and pushes PWM to TLC59116).
  */
 void Effect_Tick(void)
 {
@@ -291,14 +291,7 @@ void Effect_Tick(void)
     }
 
     env = Breath_Triangle(breath_phase);
-    if (mode == 9U)
-    {
-      breath_lut_cur = env;
-    }
-    else
-    {
-      breath_lut_cur = env;
-    }
+    breath_lut_cur = env;
 
     step_accum_ms = (uint16_t)(step_accum_ms + EFFECT_TICK_MS);
     if (step_accum_ms >= step_ms)
