@@ -1,0 +1,18 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "STM32: Flash (ST-LINK, ELF)",
+      "type": "shell",
+      "command": "STM32_Programmer_CLI",
+      "args": [
+        "-c", "port=SWD",
+        "-w", "${workspaceFolder}\\build\\Debug\\nichirin_V2.elf",
+        "-v",
+        "-rst"
+      ],
+      "problemMatcher": [],
+      "group": "build"
+    }
+  ]
+}
