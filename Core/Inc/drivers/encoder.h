@@ -16,7 +16,10 @@ typedef enum
 {
   ENC_EVENT_NONE = 0,
   ENC_EVENT_CLICK,
-  ENC_EVENT_LONGPRESS
+  ENC_EVENT_DOUBLE_CLICK,
+  ENC_EVENT_TRIPLE_CLICK,
+  ENC_EVENT_LONGPRESS,
+  ENC_EVENT_SUPER_LONGPRESS
 } EncoderEvent;
 
 void Encoder_Init(GPIO_TypeDef *a_port, uint16_t a_pin,
@@ -24,6 +27,7 @@ void Encoder_Init(GPIO_TypeDef *a_port, uint16_t a_pin,
                   GPIO_TypeDef *k_port, uint16_t k_pin);
 void Encoder_1msTick(void);
 int8_t Encoder_GetDelta(void);
+int16_t Encoder_GetDeltaAccel(void);
 EncoderEvent Encoder_GetKeyEvent(void);
 
 #endif /* DRIVERS_ENCODER_H */

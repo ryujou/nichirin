@@ -1,4 +1,4 @@
-ï»¿# Nichirin V2
+# Nichirin V2
 
 <p align="center">
   <img src="assets/peacock.jpg" alt="Peacock hardware photo" width="560">
@@ -12,180 +12,225 @@
   <img src="https://img.shields.io/badge/Status-Active-1EAE98?style=flat-square" alt="status">
 </p>
 
+> STM32G030xx ÏîÄ¿£¬»ùÓÚ STM32CubeMX Éú³É£¬Ê¹ÓÃ CMake ¹¹½¨£¬12 Â· LED I2C ºãÁ÷Çý¶¯ÓëÐý×ª±àÂëÆ÷½»»¥¡£
 
+## Ä¿Â¼
 
-> STM32G030xx é¡¹ç›®ï¼ŒåŸºäºŽ STM32CubeMX ç”Ÿæˆï¼Œä½¿ç”¨ CMake æž„å»ºï¼Œ12 è·¯ LED I2C æ’æµé©±åŠ¨ä¸Žæ—‹è½¬ç¼–ç å™¨äº¤äº’ã€‚
+- [ÏîÄ¿¼ò½é](#ÏîÄ¿¼ò½é)
+- [Ö÷ÒªÌØÐÔ](#Ö÷ÒªÌØÐÔ)
+- [Ó²¼þÓëÒý½Å](#Ó²¼þÓëÒý½Å)
+- [ÏµÍ³½ÚÅÄÓë¼Ü¹¹](#ÏµÍ³½ÚÅÄÓë¼Ü¹¹)
+- [½»»¥ËµÃ÷£¨±àÂëÆ÷£©](#½»»¥ËµÃ÷±àÂëÆ÷)
+- [²ÎÊý·Ö²ãËµÃ÷](#²ÎÊý·Ö²ãËµÃ÷)
+- [ÅäÖÃ´æ´¢ÏµÍ³£¨A/B Ë«²ÛÔ­×ÓÌá½»£©](#ÅäÖÃ´æ´¢ÏµÍ³ab-Ë«²ÛÔ­×ÓÌá½»)
+- [¿´ÃÅ¹·ËµÃ÷](#¿´ÃÅ¹·ËµÃ÷)
+- [¿ìËÙ¿ªÊ¼](#¿ìËÙ¿ªÊ¼)
+- [Ä¿Â¼½á¹¹](#Ä¿Â¼½á¹¹)
+- [ÖØÐÂÉú³É CubeMX ´úÂë](#ÖØÐÂÉú³É-cubemx-´úÂë)
+- [³£¼ûÎÊÌâ](#³£¼ûÎÊÌâ)
 
-## ç›®å½•
+## ÏîÄ¿¼ò½é
 
-- [é¡¹ç›®ç®€ä»‹](#é¡¹ç›®ç®€ä»‹)
-- [åŠŸèƒ½åˆ—è¡¨](#åŠŸèƒ½åˆ—è¡¨)
-- [é©±åŠ¨ä¸ŽæŽ¥å£è¯´æ˜Ž](#é©±åŠ¨ä¸ŽæŽ¥å£è¯´æ˜Ž)
-- [ç¼–ç å™¨ä½¿ç”¨è¯´æ˜Ž](#ç¼–ç å™¨ä½¿ç”¨è¯´æ˜Ž)
-- [LED é©±åŠ¨èŠ¯ç‰‡è¯´æ˜Ž](#led-é©±åŠ¨èŠ¯ç‰‡è¯´æ˜Ž)
-- [çŽ¯å¢ƒä¸Žä¾èµ–](#çŽ¯å¢ƒä¸Žä¾èµ–)
-- [å¿«é€Ÿå¼€å§‹](#å¿«é€Ÿå¼€å§‹)
-- [æ¨¡å¼ä¸Žå‚æ•°](#æ¨¡å¼ä¸Žå‚æ•°)
-- [ç›®å½•ç»“æž„](#ç›®å½•ç»“æž„)
-- [é‡æ–°ç”Ÿæˆ CubeMX ä»£ç ](#é‡æ–°ç”Ÿæˆ-cubemx-ä»£ç )
-- [å¸¸è§é—®é¢˜](#å¸¸è§é—®é¢˜)
+Nichirin V2 ÊÇ»ùÓÚ STM32G030 µÄ 12 Â· LED µÆÐ§¿ØÖÆ¹¤³Ì£¬Ê¹ÓÃ TLC59116 I2C ºãÁ÷Çý¶¯£¬ÊäÈëÎªÐý×ª±àÂëÆ÷ A/B + °´ÏÂ¼ü¡£¹¤³Ì²ÉÓÃ SysTick 1ms/10ms Çý¶¯×´Ì¬»ú£¬ÎÞ RTOS¡£Ö§³Ö¶àÄ£Ê½µÆÐ§¡¢²ÎÊýµ÷½Ú¡¢µôµç¼ÇÒäÓë¶ÀÁ¢¿´ÃÅ¹·±£»¤¡£
 
-## é¡¹ç›®ç®€ä»‹
+## Ö÷ÒªÌØÐÔ
 
-Nichirin V2 æ˜¯åŸºäºŽ STM32G030 çš„ 12 è·¯ LED ç¯æ•ˆæŽ§åˆ¶å·¥ç¨‹ï¼Œä½¿ç”¨ TLC59116 I2C æ’æµé©±åŠ¨ï¼Œè¾“å…¥ä¸ºæ—‹è½¬ç¼–ç å™¨ A/B + æŒ‰ä¸‹é”®ã€‚æ”¯æŒå¤šæ¨¡å¼ç¯æ•ˆã€å‚æ•°è°ƒèŠ‚ä¸Ž Flash æŽ‰ç”µè®°å¿†ã€‚
+- TLC59116 12 Â·ºãÁ÷ PWM µ÷¹â£¨8-bit£©
+- 9 ÖÖµÆÐ§Ä£Ê½£¨Á÷Ë®/ºôÎü/±¬ÉÁ/³£ÁÁ/È«µÆºôÎü£©
+- ±àÂëÆ÷½»»¥Éý¼¶£ºµ¥»÷/Ë«»÷/Èý»÷/³¤°´/³¬³¤°´
+- Ðý×ª¼ÓËÙ¶È£ºÂýËÙ 1 ²½¡¢ÖÐËÙ 4 ²½¡¢¿ìËÙ 16 ²½
+- ²ÎÊý·Ö²ã£º»ù´¡/¸ß¼¶Á½²ã
+- Í¯Ëø/ÈíËø¶¨£¨³¬³¤°´ 5 ÃëËø¶¨/½âËø£©
+- A/B Ë«²ÛÔ­×ÓÅäÖÃ±£´æ£¬¶Ïµç°²È«
+- IWDG ¶ÀÁ¢¿´ÃÅ¹·½¡¿µÎ¹¹·
 
-## åŠŸèƒ½åˆ—è¡¨
+## Ó²¼þÓëÒý½Å
 
-- TLC59116 12 è·¯æ’æµ PWM è°ƒå…‰ (8-bit)
-- 9 ç§ç¯æ•ˆæ¨¡å¼ï¼ˆæµæ°´/å‘¼å¸/çˆ†é—ª/å¸¸äº®/å…¨ç¯å‘¼å¸ï¼‰
-- æ—‹è½¬ç¼–ç å™¨è¾“å…¥ï¼šçŸ­æŒ‰åˆ‡æ¨¡å¼ï¼Œé•¿æŒ‰è¿›å‡ºè®¾ç½®
-- å‚æ•° 0..255 æ— çº§è°ƒèŠ‚
-- é…ç½®å†™å…¥ Flash è½®è½¬æ—¥å¿—ï¼Œå‡å°‘æ“¦å†™
+- **MCU**: STM32G030F6Px
+- **I2C1**: SCL=PB3£¬SDA=PB7£¨Óë TLC59116 ÏàÁ¬£©
+- **±àÂëÆ÷**: A=PA0£¬B=PA1£¬K=PA2£¬ÉÏÀ­ÊäÈë
+- **LED Çý¶¯**: TLC59116£¬A0=GND£¬7-bit µØÖ· `0x60`
 
-## é©±åŠ¨ä¸ŽæŽ¥å£è¯´æ˜Ž
+## ÏµÍ³½ÚÅÄÓë¼Ü¹¹
 
-- **LED é©±åŠ¨**: TLC59116 I2Cï¼Œåœ°å€ A0=GNDï¼Œé»˜è®¤ 7-bit åœ°å€ `0x60`
-- **I2C å¼•è„š**: SCL=PB3ï¼ŒSDA=PB7ï¼ˆéœ€åœ¨ CubeMX ä¸­ç¡®è®¤ï¼‰
-- **ç¼–ç å™¨**: A=PA0ï¼ŒB=PA1ï¼ŒK=PA2ï¼Œä¸Šæ‹‰è¾“å…¥
-- **èŠ‚æ‹**: SysTick 1ms é‡‡æ ·ç¼–ç å™¨ï¼Œä¸»å¾ªçŽ¯ 10ms æ›´æ–°ç¯æ•ˆ
+- **1ms Tick**£º`HAL_SYSTICK_Callback()` ÄÚ²¿µ÷ÓÃ `Encoder_1msTick()`
+- **10ms Tick**£ºÖ÷Ñ­»·ÖÐÃ¿ 10ms µ÷ÓÃ `Effect_Tick()`
+- **ÎÞ RTOS**£ºËùÓÐÂß¼­ÓÉ SysTick Çý¶¯µÄ×´Ì¬»úÍê³É
+- **Ö÷Ñ­»·¼ò½à**£º½ö×ö³õÊ¼»¯ºÍÖÜÆÚµ÷ÓÃ
 
-## ç¼–ç å™¨ä½¿ç”¨è¯´æ˜Ž
+## ½»»¥ËµÃ÷£¨±àÂëÆ÷£©
 
-### ç¡¬ä»¶è¿žæŽ¥
+### °´¼üÊÂ¼þ
 
-- A ç›¸æŽ¥ PA0ï¼ŒB ç›¸æŽ¥ PA1ï¼ŒæŒ‰ä¸‹é”® K æŽ¥ PA2
-- ä¸‰è·¯å‡é…ç½®ä¸ºä¸Šæ‹‰è¾“å…¥ï¼Œç¼–ç å™¨å…¬å…±ç«¯æŽ¥ GND
-
-### è½¯ä»¶å¤„ç†æµç¨‹
-
-- SysTick 1ms è°ƒç”¨ `Encoder_1msTick()` åšé‡‡æ ·ä¸ŽåŽ»æŠ–
-- A/B é‡‡ç”¨å››ç›¸çŠ¶æ€æœºè¯‘ç ï¼Œç´¯è®¡è¾¹æ²¿åˆ°ä¸€ä¸ªâ€œæ­¥è¿›â€æ‰è¾“å‡ºå¢žé‡
-- K é”®é‡‡ç”¨ç§¯åˆ†åŽ»æŠ–ï¼Œæ”¯æŒçŸ­æŒ‰ä¸Žé•¿æŒ‰äº‹ä»¶
-
-### äº‹ä»¶è§„åˆ™
-
-- çŸ­æŒ‰ï¼šåˆ‡æ¢æ¨¡å¼
-- é•¿æŒ‰ï¼šè¿›å…¥/é€€å‡ºè®¾ç½®
-- è®¾ç½®æ¨¡å¼ä¸‹æ—‹è½¬ï¼šè°ƒæ•´å½“å‰æ¨¡å¼å‚æ•°ï¼ˆ0..255ï¼‰
-
-### è°ƒæ•´æ—‹è½¬æ–¹å‘
-
-è‹¥æ—‹è½¬æ–¹å‘ä¸Žå®žé™…ç›¸åï¼š
-1. äº¤æ¢ç¡¬ä»¶ A/B æŽ¥çº¿ï¼Œæˆ–
-2. åœ¨ `Core/Src/drivers/encoder.c` ä¸­äº¤æ¢è¯»å–é¡ºåº
-
-## LED é©±åŠ¨èŠ¯ç‰‡è¯´æ˜Ž
-
-### TLC59116 åŸºæœ¬è¿žæŽ¥
-
-- LED é˜³æžæŽ¥ 5Vï¼ŒTLC59116 è´Ÿè´£ä¸‹æ‹‰æ’æµ
-- TLC59116 VCC=3.3Vï¼Œä¸Ž MCU å…±åœ°
-- A0 æŽ¥åœ°æ—¶é»˜è®¤ 7-bit åœ°å€ä¸º `0x60`
-
-### è½¯ä»¶é©±åŠ¨æ–¹å¼
-
-- åˆå§‹åŒ–æ—¶é…ç½® MODE1/MODE2ï¼Œå¯ç”¨è‡ªåŠ¨åœ°å€é€’å¢ž
-- LEDOUT0..2 è®¾ä¸º PWM æŽ§åˆ¶æ¨¡å¼ï¼ŒOUT0..OUT11 æœ‰æ•ˆ
-- ä½¿ç”¨ä¸€æ¬¡ I2C å†™å…¥ PWM0..PWM11ï¼Œé¿å…é€é€šé“å†™å¸¦æ¥çš„å»¶è¿Ÿ
-
-### åˆ·æ–°é¢‘çŽ‡
-
-- æ•ˆæžœèŠ‚æ‹ 10msï¼Œçº¦ 100Hz åˆ·æ–°
-- æ¯æ¬¡ç”Ÿæˆ 12 è·¯ PWM å€¼ï¼Œç«‹å³å†™å…¥ TLC59116
-
-## çŽ¯å¢ƒä¸Žä¾èµ–
-
-| ç»„ä»¶ | è¯´æ˜Ž | å¤‡æ³¨ |
+| ÊÂ¼þ | ²Ù×÷ | ËµÃ÷ |
 | --- | --- | --- |
-| CMake | 3.22+ | é…ç½®ç”Ÿæˆ |
-| Ninja | æž„å»ºå™¨ | æŽ¨è |
-| ARM GNU Toolchain | `arm-none-eabi-gcc` | éœ€åœ¨ PATH ä¸­ |
-| STM32CubeMX | å¯é€‰ | é‡æ–°ç”Ÿæˆä»£ç  |
+| µ¥»÷ | ÇÐ»»Ä£Ê½ / ÇÐ»»ÉèÖÃÏî | ÔËÐÐÌ¬ÇÐÄ£Ê½£¬ÉèÖÃÌ¬ÇÐ²ÎÊýÏî |
+| Ë«»÷ | ¿ì½Ý¹¦ÄÜ 1 | ÔËÐÐÌ¬ÇÐµ½³£ÓÃÄ£Ê½£¨MODE_MIN£©/·µ»ØÉÏ´ÎÄ£Ê½ |
+| Èý»÷ | ÇÐ»»²ÎÊý²ã | BASIC ?  ADV | 
+| ³¤°´ | ½øÈë/ÍË³öÉèÖÃ | ÍË³öÊ±±£´æÅäÖÃ |
+| ³¬³¤°´£¨5 Ãë£© | Ëø¶¨/½âËø | ½öÔÚÔËÐÐÌ¬´¥·¢ |
 
-## å¿«é€Ÿå¼€å§‹
+### Ðý×ª¼ÓËÙ¶È
 
-### 1. é…ç½®ä¸Žç¼–è¯‘ï¼ˆDebugï¼‰
+- ÂýËÙ£ºÃ¿ detent ¡À1
+- ÖÐËÙ£ºÃ¿ detent ¡À4£¨Ä¬ÈÏãÐÖµ 120ms£©
+- ¿ìËÙ£ºÃ¿ detent ¡À16£¨Ä¬ÈÏãÐÖµ 60ms£©
+
+µ÷ÕûãÐÖµÓë±¶ÂÊ£º`Core/Src/drivers/encoder.c`
+
+```c
+#define ENCODER_ACCEL_MID_MS 120U
+#define ENCODER_ACCEL_FAST_MS 60U
+#define ENCODER_ACCEL_MID_STEP 4
+#define ENCODER_ACCEL_FAST_STEP 16
+```
+
+### Í¯Ëø£¨ÈíËø¶¨£©
+
+- ÔËÐÐÌ¬ÏÂ³¤°´ 5 Ãë½øÈëËø¶¨
+- Ëø¶¨ºóÐý×ªÎÞÐ§£¬°´¼üÊÂ¼þ±»ºöÂÔ
+- ÔÙ³¤°´ 5 Ãë½âËø
+- Ëø¶¨×´Ì¬»á±£´æµ½ÅäÖÃÖÐ
+
+## ²ÎÊý·Ö²ãËµÃ÷
+
+### BASIC£¨»ù´¡²ã£©
+
+- **ÁÁ¶È**£ºÈ«¾ÖÁÁ¶È£¨0..255£©
+- **ËÙ¶È**£ºµ±Ç°Ä£Ê½ËÙ¶È£¨0..255£¬Ó³Éäµ½¶ÔÓ¦Ð§¹û£©
+
+### ADV£¨¸ß¼¶²ã£©
+
+- **Gamma**£ºÁÁ¶ÈÇúÏßÇ¿¶È£¨0..255£©
+- **ºôÎüÇúÏß**£ºÈý½Ç²¨»ìºÏÇúÏß£¨0..255£©
+- **±¬ÉÁÖÜÆÚ**£º50ms~1000ms£¨²½½ø 10ms£©
+- **ÏàÎ»Æ«ÒÆ**£ºÓÃÓÚÁ÷Ë®/·Ö×éÏÔÊ¾ÏàÎ»Æ«ÒÆ
+
+¸ß¼¶²ÎÊý±£´æµ½ÅäÖÃÖÐ£¬µôµç¼ÇÒä¡£
+
+## ÅäÖÃ´æ´¢ÏµÍ³£¨A/B Ë«²ÛÔ­×ÓÌá½»£©
+
+ÐÂÔö `cfg_store` Ä£¿éÌæ´úÔ­ÈÕÖ¾Ê½Ð´Èë£¬±£Ö¤¶Ïµç°²È«¡£
+
+### ²Û½á¹¹£¨Ã¿²ÛÒ»Ò³£©
+
+- A ²Û / B ²Û¸÷Õ¼ 1 Ò³£¨Ä¬ÈÏ 2KB£©
+- Ã¿²Û¸ñÊ½£º
+  - magic
+  - version
+  - len
+  - seq
+  - crc32£¨¸²¸Ç payload£©
+  - state£¨ERASED / WRITING / VALID£©
+  - payload£¨Config£©
+
+### Ô­×ÓÌá½»Á÷³Ì
+
+1. Ñ¡Ôñ **·Çµ±Ç°²Û** ×÷ÎªÄ¿±ê²Û
+2. ²Á³ýÄ¿±ê²Û
+3. Ð´Èë header£¨state = WRITING£©
+4. Ð´Èë payload
+5. Ð´Èë crc32
+6. ×îºóÒ»²½Ð´Èë state = VALID£¨µ¥´Î 8 ×Ö½ÚÐ´Èë£¬Ô­×ÓÍê³É£©
+
+¾É²ÛÖ±µ½ÐÂ²Û VALID Íê³É²ÅËãÇÐ»»³É¹¦¡£
+
+### ÉÏµç¼ÓÔØ²ßÂÔ
+
+- É¨Ãè A/B ²Û
+- ½ö½ÓÊÜ£ºmagic/version/len ÕýÈ· + state=VALID + CRC Í¨¹ý
+- Á½²ÛÓÐÐ§Ê±Ñ¡ seq ¸ü´óµÄ
+- ¶¼ÎÞÐ§Ôò¼ÓÔØÄ¬ÈÏ²¢Ð´ÈëÒ»´Î
+
+### Flash µØÖ·
+
+Ä¬ÈÏÊ¹ÓÃ STM32G030F6 ×îºóÁ½Ò³£º
+
+```c
+#define CFG_SLOT0_ADDR 0x08007000UL
+#define CFG_SLOT1_ADDR 0x08007800UL
+#define CFG_PAGE_SIZE  0x800U
+```
+
+ÈôÄãµÄÐ¾Æ¬»òÁ´½Ó½Å±¾²»Í¬£¬ÇëÔÚ `Core/Src/storage/cfg_store.c` µ÷Õû¡£
+
+## ¿´ÃÅ¹·ËµÃ÷
+
+- Ê¹ÓÃ IWDG£¨LSI£©Ô¼ 4 Ãë³¬Ê±
+- ½¡¿µÎ¹¹·²ßÂÔ£ºÖ»ÓÐ¹Ø¼üÈÎÎñÔÚ´°¿ÚÄÚ¶¼Õý³£ÉÏ±¨²ÅË¢ÐÂ
+- ¹Ø¼üÈÎÎñÊ¾Àý£º±àÂëÆ÷ 1ms¡¢µÆÐ§ 10ms¡¢TLC I2C Ë¢ÐÂ
+
+Ïà¹ØÊµÏÖ£º`Core/Src/watchdog.c`
+
+## ¿ìËÙ¿ªÊ¼
+
+### Debug ¹¹½¨
 
 ```sh
 cmake --preset Debug
 cmake --build --preset Debug
 ```
 
-### 2. Release æž„å»º
+### Release ¹¹½¨
 
 ```sh
 cmake --preset Release
 cmake --build --preset Release
 ```
 
-### 3. æ¸…ç†æž„å»ºäº§ç‰©
+### ÇåÀí¹¹½¨²úÎï
 
 ```sh
 cmake --build --preset Debug --target clean
 ```
 
-### 4. æž„å»ºäº§ç‰©
+### ¹¹½¨²úÎï
 
 - `build/Debug/nichirin_V2.elf`
 - `build/Debug/nichirin_V2.map`
 
-## æ¨¡å¼ä¸Žå‚æ•°
-
-| æ¨¡å¼ | ç¯æ•ˆæè¿° | å‚æ•°å«ä¹‰ |
-| --- | --- | --- |
-| 1 | æ­£å‘å•ç¯æµæ°´ | æµæ°´é€Ÿåº¦ |
-| 2 | åå‘å•ç¯æµæ°´ | æµæ°´é€Ÿåº¦ |
-| 3 | å¯¹ç§°åˆ†ç»„æµæ°´ | æµæ°´é€Ÿåº¦ |
-| 4 | å‘¼å¸æµåŠ¨ï¼ˆè½¯äº®çŽ¯ç»•ï¼‰ | æµæ°´é€Ÿåº¦ |
-| 5 | åå‘å‘¼å¸æµåŠ¨ | æµæ°´é€Ÿåº¦ |
-| 6 | åˆ†ç»„å‘¼å¸ | æµæ°´é€Ÿåº¦ |
-| 7 | å…¨äº®/å…¨ç­çˆ†é—ª | çˆ†é—ªå‘¨æœŸ |
-| 8 | å¸¸äº® | äº®åº¦ |
-| 9 | å…¨ç¯å‘¼å¸ | å‘¼å¸é€Ÿåº¦ |
-
-### å‚æ•°èŒƒå›´
-
-å‚æ•°èŒƒå›´ä¸º 0~255ï¼Œæ•°å€¼è¶Šå¤§é€šå¸¸å˜åŒ–è¶Šå¿«/æ›´äº®ã€‚
-
-è¯´æ˜Žï¼š
-- æ¨¡å¼ 1~6 ä½¿ç”¨â€œæµæ°´é€Ÿåº¦â€å‚æ•°
-- æ¨¡å¼ 7 ä½¿ç”¨â€œçˆ†é—ªå‘¨æœŸâ€å‚æ•°
-- æ¨¡å¼ 8 ä½¿ç”¨â€œå¸¸äº®äº®åº¦â€å‚æ•°
-- æ¨¡å¼ 9 ä½¿ç”¨â€œå‘¼å¸é€Ÿåº¦â€å‚æ•°
-
-æŒ‰é”®ä¸ºä½Žç”µå¹³æœ‰æ•ˆï¼ˆä¸Šæ‹‰è¾“å…¥ï¼‰ï¼š
-- çŸ­æŒ‰ï¼šåˆ‡æ¢ç¯æ•ˆæ¨¡å¼
-- é•¿æŒ‰ï¼šè¿›å…¥/é€€å‡ºè®¾ç½®æ¨¡å¼
-- è®¾ç½®æ¨¡å¼ä¸‹æ—‹è½¬ï¼šè°ƒèŠ‚å½“å‰æ¨¡å¼å‚æ•°
-
-è®¾ç½®æ¨¡å¼ä¸‹ä¼šä»¥å…¨ç¯äº®åº¦æ˜¾ç¤ºå½“å‰å‚æ•°å€¼ï¼Œé€€å‡ºè®¾ç½®åŽå†™å…¥ Flashã€‚
-
-## ç›®å½•ç»“æž„
+## Ä¿Â¼½á¹¹
 
 ```
 nichirin_V2/
-â”œâ”€â”€ Core/                    # åº”ç”¨ä»£ç  (main, app, drivers)
-â”œâ”€â”€ Drivers/                 # CMSIS ä¸Ž HAL é©±åŠ¨
-â”œâ”€â”€ cmake/                   # å·¥å…·é“¾ä¸Ž CubeMX CMake é›†æˆ
-â”œâ”€â”€ assets/                  # å›¾ç‰‡ç­‰èµ„æº
-â”œâ”€â”€ startup_stm32g030xx.s    # å¯åŠ¨æ–‡ä»¶
-â”œâ”€â”€ STM32G030XX_FLASH.ld     # é“¾æŽ¥è„šæœ¬
-â””â”€â”€ nichirin_V2.ioc          # CubeMX å·¥ç¨‹æ–‡ä»¶
+©À©¤©¤ Core/
+©¦   ©À©¤©¤ Inc/
+©¦   ©¦   ©À©¤©¤ drivers/
+©¦   ©¦   ©À©¤©¤ storage/
+©¦   ©¦   ©¦   ©À©¤©¤ flash_cfg.h
+©¦   ©¦   ©¦   ©¸©¤©¤ cfg_store.h
+©¦   ©¦   ©¸©¤©¤ app/
+©¦   ©¸©¤©¤ Src/
+©¦       ©À©¤©¤ app/
+©¦       ©À©¤©¤ drivers/
+©¦       ©À©¤©¤ storage/
+©¦       ©¦   ©À©¤©¤ flash_cfg.c
+©¦       ©¦   ©¸©¤©¤ cfg_store.c
+©¦       ©¸©¤©¤ main.c
+©À©¤©¤ Drivers/
+©À©¤©¤ cmake/
+©À©¤©¤ assets/
+©À©¤©¤ startup_stm32g030xx.s
+©À©¤©¤ STM32G030XX_FLASH.ld
+©¸©¤©¤ nichirin_V2.ioc
 ```
 
-## é‡æ–°ç”Ÿæˆ CubeMX ä»£ç 
+## ÖØÐÂÉú³É CubeMX ´úÂë
 
-1. ä½¿ç”¨ STM32CubeMX æ‰“å¼€ `nichirin_V2.ioc`
-2. é‡æ–°ç”Ÿæˆä»£ç ï¼ˆä¿æŒ CMake/Makefile å·¥ç¨‹é…ç½®ï¼‰
-3. æŒ‰ç…§ [å¿«é€Ÿå¼€å§‹](#å¿«é€Ÿå¼€å§‹) é‡æ–°æž„å»º
+1. Ê¹ÓÃ STM32CubeMX ´ò¿ª `nichirin_V2.ioc`
+2. È·±£ I2C1/LSI/IWDG ÅäÖÃÓë¹¤³ÌÒ»ÖÂ
+3. ÖØÐÂÉú³É´úÂë£¨±£Áô USER CODE Çø¼ä£©
+4. °´ÕÕ [¿ìËÙ¿ªÊ¼](#¿ìËÙ¿ªÊ¼) ÖØÐÂ¹¹½¨
 
-## å¸¸è§é—®é¢˜
+ÌáÊ¾£ºIWDG ³õÊ¼»¯ÓÉ `WDG_Init()` Í³Ò»ÉèÖÃ³¬Ê±£¬CubeMX Ä¬ÈÏÖµ»á±»¸²¸Ç¡£
 
-**Q: ç¼–è¯‘å¤±è´¥æç¤ºæ‰¾ä¸åˆ°å·¥å…·é“¾ï¼Ÿ**  
-A: ç¡®ä¿å·²å®‰è£… ARM GNU Toolchainï¼Œå¹¶æŠŠ `arm-none-eabi-gcc` åŠ å…¥ PATHã€‚
+## ³£¼ûÎÊÌâ
 
-**Q: I2C å¼•è„šä¸å¯¹ï¼Ÿ**  
-A: åœ¨ CubeMX ä¸­ç¡®è®¤ I2C1 SCL=PB3ã€SDA=PB7ï¼Œä¸Žç¡¬ä»¶ä¸€è‡´ã€‚
+**Q: Ðý×ª·½Ïò·´ÁË£¿**  
+A: ½»»» A/B Á½Ïà£¬»òÔÚ `Core/Src/drivers/encoder.c` ÖÐ½»»»¶ÁÈ¡Ë³Ðò¡£
 
-**Q: æ—‹è½¬æ–¹å‘åäº†ï¼Ÿ**  
-A: äº¤æ¢ A/B ä¸¤ç›¸ï¼Œæˆ–åœ¨ `Core/Src/drivers/encoder.c` ä¸­è°ƒæ•´ã€‚
+**Q: ±àÂëÆ÷°´¼üÎÞÏìÓ¦£¿**  
+A: È·ÈÏ K ½ÅÉÏÀ­²¢µÍµçÆ½´¥·¢£¬È¥¶¶Ê±¼ä¿ÉÔÚ `ENCODER_DEBOUNCE_MAX` µ÷Õû¡£
+
+**Q: µôµçºóÅäÖÃ¶ªÊ§£¿**  
+A: ÇëÈ·ÈÏ `CFG_SLOT0_ADDR/CFG_SLOT1_ADDR` ÓëÁ´½Ó½Å±¾²»³åÍ»£¬²¢È·ÊµÓÐ²ÁÐ´È¨ÏÞ¡£

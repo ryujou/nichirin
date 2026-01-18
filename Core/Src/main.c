@@ -24,7 +24,9 @@
 #include "app/app.h"
 #include "drivers/encoder.h"
 #include "drivers/tlc59116.h"
+#include "storage/cfg_store.h"
 #include "storage/flash_cfg.h"
+#include "watchdog.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -45,6 +47,8 @@
 /* Private variables ---------------------------------------------------------*/
 I2C_HandleTypeDef hi2c1;
 
+IWDG_HandleTypeDef hiwdg;
+
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -53,6 +57,7 @@ I2C_HandleTypeDef hi2c1;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
+static void MX_IWDG_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -92,8 +97,11 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_I2C1_Init();
+  MX_IWDG_Init();
   /* USER CODE BEGIN 2 */
   /* CubeMX pinout reminder: set I2C1 SCL=PB3, SDA=PB7 to match TLC59116 wiring. */
+
+  WDG_Init(&hiwdg);
 
   /* Initialize LED driver and encoder sampling. */
   (void)TLC59116_Init(&hi2c1);
@@ -105,15 +113,15 @@ int main(void)
   /* Load persisted config and apply; write defaults if missing. */
   {
     Config cfg;
-    if (FlashCfg_Load(&cfg))
+    if (Cfg_Load(&cfg))
     {
       Apply_Config(&cfg);
     }
     else
     {
-      FlashCfg_InitDefaults(&cfg);
+      Cfg_ResetToDefault(&cfg);
       Apply_Config(&cfg);
-      (void)FlashCfg_Append(&cfg);
+      (void)Cfg_SaveAtomic(&cfg);
     }
   }
 
@@ -136,6 +144,7 @@ int main(void)
     {
       last_tick += EFFECT_TICK_MS;
       Effect_Tick();
+      WDG_Tick10ms();
     }
   }
   /* USER CODE END 3 */
@@ -157,10 +166,11 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_LSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSIDiv = RCC_HSI_DIV1;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
   RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV1;
@@ -235,6 +245,35 @@ static void MX_I2C1_Init(void)
 }
 
 /**
+  * @brief IWDG Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_IWDG_Init(void)
+{
+
+  /* USER CODE BEGIN IWDG_Init 0 */
+
+  /* USER CODE END IWDG_Init 0 */
+
+  /* USER CODE BEGIN IWDG_Init 1 */
+
+  /* USER CODE END IWDG_Init 1 */
+  hiwdg.Instance = IWDG;
+  hiwdg.Init.Prescaler = IWDG_PRESCALER_4;
+  hiwdg.Init.Window = 4095;
+  hiwdg.Init.Reload = 4095;
+  if (HAL_IWDG_Init(&hiwdg) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN IWDG_Init 2 */
+
+  /* USER CODE END IWDG_Init 2 */
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -266,6 +305,7 @@ void HAL_SYSTICK_Callback(void)
 {
   /* 1 ms encoder sampling and debounce. */
   Encoder_1msTick();
+  WDG_TaskKick_Notify(WDG_TASK_ENCODER_1MS);
 }
 
 /* USER CODE END 4 */

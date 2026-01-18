@@ -9,9 +9,16 @@
 #include "drivers/encoder.h"
 
 #define ENCODER_DEBOUNCE_MAX 8U
-#define ENCODER_LONGPRESS_MS 600U
+#define ENCODER_LONGPRESS_MS 800U
+#define ENCODER_SUPERLONG_MS 5000U
+#define ENCODER_CLICK_WINDOW_MS 300U
 /* Use 4 for full-step encoders, or 2 for half-step encoders. */
 #define ENCODER_EDGES_PER_STEP 4
+
+#define ENCODER_ACCEL_MID_MS 120U
+#define ENCODER_ACCEL_FAST_MS 60U
+#define ENCODER_ACCEL_MID_STEP 4
+#define ENCODER_ACCEL_FAST_STEP 16
 
 static GPIO_TypeDef *s_a_port;
 static GPIO_TypeDef *s_b_port;
@@ -26,9 +33,37 @@ static uint8_t s_key_integrator;
 static uint8_t s_key_stable;
 static uint8_t s_key_last;
 static uint16_t s_key_press_ms;
-static uint8_t s_key_long_fired;
+static uint16_t s_click_timer_ms;
+static uint8_t s_click_count;
 static volatile EncoderEvent s_key_event;
 static uint8_t s_initialized;
+static uint16_t s_ms_counter;
+static uint16_t s_last_detent_ms;
+static volatile int16_t s_scaled_delta;
+
+/* Function: Encoder_AccumAccel
+ * Purpose: Update accelerated delta based on detent interval.
+ * Inputs: direction - +1 or -1 per detent.
+ * Outputs: None (updates scaled delta).
+ */
+static void Encoder_AccumAccel(int8_t direction)
+{
+  uint16_t now = s_ms_counter;
+  uint16_t dt = (uint16_t)(now - s_last_detent_ms);
+  s_last_detent_ms = now;
+
+  int16_t step = 1;
+  if (dt <= ENCODER_ACCEL_FAST_MS)
+  {
+    step = ENCODER_ACCEL_FAST_STEP;
+  }
+  else if (dt <= ENCODER_ACCEL_MID_MS)
+  {
+    step = ENCODER_ACCEL_MID_STEP;
+  }
+
+  s_scaled_delta = (int16_t)(s_scaled_delta + ((direction > 0) ? step : -step));
+}
 
 /* Function: Encoder_ReadAB
  * Purpose: Read current A/B GPIO levels as a 2-bit state.
@@ -74,9 +109,13 @@ void Encoder_Init(GPIO_TypeDef *a_port, uint16_t a_pin,
   s_key_stable = Encoder_ReadKeyPressed();
   s_key_last = s_key_stable;
   s_key_press_ms = 0;
-  s_key_long_fired = 0U;
+  s_click_timer_ms = 0U;
+  s_click_count = 0U;
   s_key_event = ENC_EVENT_NONE;
   s_initialized = 1U;
+  s_ms_counter = 0U;
+  s_last_detent_ms = 0U;
+  s_scaled_delta = 0;
 }
 
 /* Function: Encoder_1msTick
@@ -90,6 +129,8 @@ void Encoder_1msTick(void)
   {
     return;
   }
+
+  s_ms_counter++;
 
   {
     static const int8_t table[16] = {
@@ -109,11 +150,13 @@ void Encoder_1msTick(void)
       {
         s_edge_accum = (int8_t)(s_edge_accum - ENCODER_EDGES_PER_STEP);
         s_detent_delta++;
+        Encoder_AccumAccel(1);
       }
       else if (s_edge_accum <= -ENCODER_EDGES_PER_STEP)
       {
         s_edge_accum = (int8_t)(s_edge_accum + ENCODER_EDGES_PER_STEP);
         s_detent_delta--;
+        Encoder_AccumAccel(-1);
       }
     }
   }
@@ -146,32 +189,73 @@ void Encoder_1msTick(void)
 
     if (s_key_stable != 0U)
     {
-      if (s_key_press_ms < ENCODER_LONGPRESS_MS)
+      if (s_key_press_ms < ENCODER_SUPERLONG_MS)
       {
         s_key_press_ms++;
-      }
-      if ((s_key_press_ms >= ENCODER_LONGPRESS_MS) && (s_key_long_fired == 0U))
-      {
-        s_key_long_fired = 1U;
-        if (s_key_event == ENC_EVENT_NONE)
-        {
-          s_key_event = ENC_EVENT_LONGPRESS;
-        }
       }
     }
     else
     {
-      if ((s_key_last != 0U) && (s_key_long_fired == 0U) && (s_key_press_ms > 0U))
+      if (s_key_last != 0U)
       {
-        if (s_key_event == ENC_EVENT_NONE)
+        if (s_key_press_ms >= ENCODER_SUPERLONG_MS)
+        {
+          s_click_count = 0U;
+          s_click_timer_ms = 0U;
+          if (s_key_event == ENC_EVENT_NONE)
+          {
+            s_key_event = ENC_EVENT_SUPER_LONGPRESS;
+          }
+        }
+        else if (s_key_press_ms >= ENCODER_LONGPRESS_MS)
+        {
+          s_click_count = 0U;
+          s_click_timer_ms = 0U;
+          if (s_key_event == ENC_EVENT_NONE)
+          {
+            s_key_event = ENC_EVENT_LONGPRESS;
+          }
+        }
+        else if (s_key_press_ms > 0U)
+        {
+          if (s_click_count < 3U)
+          {
+            s_click_count++;
+          }
+          s_click_timer_ms = 0U;
+        }
+        s_key_press_ms = 0U;
+      }
+    }
+    s_key_last = s_key_stable;
+  }
+
+  if ((s_key_stable == 0U) && (s_click_count > 0U))
+  {
+    if (s_click_timer_ms < ENCODER_CLICK_WINDOW_MS)
+    {
+      s_click_timer_ms++;
+    }
+    else
+    {
+      if (s_key_event == ENC_EVENT_NONE)
+      {
+        if (s_click_count == 1U)
         {
           s_key_event = ENC_EVENT_CLICK;
         }
+        else if (s_click_count == 2U)
+        {
+          s_key_event = ENC_EVENT_DOUBLE_CLICK;
+        }
+        else
+        {
+          s_key_event = ENC_EVENT_TRIPLE_CLICK;
+        }
+        s_click_count = 0U;
+        s_click_timer_ms = 0U;
       }
-      s_key_press_ms = 0U;
-      s_key_long_fired = 0U;
     }
-    s_key_last = s_key_stable;
   }
 }
 
@@ -185,6 +269,22 @@ int8_t Encoder_GetDelta(void)
   int8_t delta;
   __disable_irq();
   delta = s_detent_delta;
+  s_detent_delta = 0;
+  __enable_irq();
+  return delta;
+}
+
+/* Function: Encoder_GetDeltaAccel
+ * Purpose: Fetch and clear the accelerated detent delta.
+ * Inputs: None.
+ * Outputs: Signed delta (scaled steps) since last call.
+ */
+int16_t Encoder_GetDeltaAccel(void)
+{
+  int16_t delta;
+  __disable_irq();
+  delta = s_scaled_delta;
+  s_scaled_delta = 0;
   s_detent_delta = 0;
   __enable_irq();
   return delta;

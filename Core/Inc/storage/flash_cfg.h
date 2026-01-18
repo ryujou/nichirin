@@ -20,11 +20,17 @@ enum
 typedef struct
 {
   uint8_t mode;
+  uint8_t param_layer;
+  uint8_t lock_enabled;
+  uint8_t global_brightness;
   uint8_t param_speed_idx;
   uint8_t param_level[10];
   uint16_t flash_period;
+  uint8_t adv_gamma;
+  uint8_t adv_breath_shape;
+  uint8_t adv_phase_offset;
   uint8_t format_tag;
-  uint8_t reserved[18];
+  uint8_t reserved[11];
 } Config;
 
 bool FlashCfg_Load(Config *out);

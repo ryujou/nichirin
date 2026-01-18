@@ -45,6 +45,7 @@ set(STM32_Drivers_Src
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Drivers/STM32G0xx_HAL_Driver/Src/stm32g0xx_hal_cortex.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Drivers/STM32G0xx_HAL_Driver/Src/stm32g0xx_hal.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Drivers/STM32G0xx_HAL_Driver/Src/stm32g0xx_hal_exti.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../Drivers/STM32G0xx_HAL_Driver/Src/stm32g0xx_hal_iwdg.c
 )
 
 # Drivers Midllewares
