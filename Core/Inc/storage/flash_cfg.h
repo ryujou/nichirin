@@ -29,8 +29,12 @@ typedef struct
   uint8_t adv_gamma;
   uint8_t adv_breath_shape;
   uint8_t adv_phase_offset;
+  uint8_t gamma_profile;
   uint8_t format_tag;
-  uint8_t reserved[11];
+  uint8_t reserved[29];
+  uint32_t cfg_version;
+  uint32_t created_by_fw;
+  uint32_t last_migrated_by_fw;
 } Config;
 
 bool FlashCfg_Load(Config *out);

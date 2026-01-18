@@ -24,6 +24,7 @@
 #include "app/app.h"
 #include "drivers/encoder.h"
 #include "drivers/tlc59116.h"
+#include "boot_selftest.h"
 #include "storage/cfg_store.h"
 #include "storage/flash_cfg.h"
 #include "watchdog.h"
@@ -102,6 +103,7 @@ int main(void)
   /* CubeMX pinout reminder: set I2C1 SCL=PB3, SDA=PB7 to match TLC59116 wiring. */
 
   WDG_Init(&hiwdg);
+  BootSelfTest_Init(&hi2c1);
 
   /* Initialize LED driver and encoder sampling. */
   (void)TLC59116_Init(&hi2c1);
@@ -143,6 +145,8 @@ int main(void)
     if ((now - last_tick) >= EFFECT_TICK_MS)
     {
       last_tick += EFFECT_TICK_MS;
+      BootSelfTest_Tick10ms();
+      App_SetSafeMode(BootSelfTest_IsSafeMode());
       Effect_Tick();
       WDG_Tick10ms();
     }

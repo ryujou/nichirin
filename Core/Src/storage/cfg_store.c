@@ -1,5 +1,7 @@
 #include "storage/cfg_store.h"
 #include "stm32g0xx_hal.h"
+#include "fw_version.h"
+#include "bright_map.h"
 #include <string.h>
 
 #ifndef CFG_PAGE_SIZE
@@ -17,6 +19,12 @@
 
 #define CFG_MAGIC 0x32474643UL
 #define CFG_VERSION 2U
+
+#define LEGACY_MAGIC 0x31474643UL
+#define LEGACY_VERSION 1U
+#define LEGACY_RECORD_SIZE 64U
+#define LEGACY_CRC_OFFSET 60U
+#define LEGACY_HEADER_SIZE 12U
 
 #define CFG_STATE_ERASED 0xFFFFFFFFUL
 #define CFG_STATE_WRITING 0xFFFFFFFEUL
@@ -190,6 +198,182 @@ static void Build_DW2(uint8_t dw2[8], uint32_t state)
   memcpy(&dw2[4], &rsvd, sizeof(rsvd));
 }
 
+static bool Legacy_ReadRecord(uint32_t addr, Config *out, uint32_t *seq_out)
+{
+  uint8_t buf[LEGACY_RECORD_SIZE];
+  memcpy(buf, (const void *)addr, LEGACY_RECORD_SIZE);
+
+  uint32_t magic = 0U;
+  uint16_t version = 0U;
+  uint16_t length = 0U;
+  uint32_t seq = 0U;
+  uint32_t crc_stored = 0U;
+
+  memcpy(&magic, &buf[0], sizeof(magic));
+  memcpy(&version, &buf[4], sizeof(version));
+  memcpy(&length, &buf[6], sizeof(length));
+  memcpy(&seq, &buf[8], sizeof(seq));
+  memcpy(&crc_stored, &buf[LEGACY_CRC_OFFSET], sizeof(crc_stored));
+
+  if ((magic != LEGACY_MAGIC) || (version != LEGACY_VERSION))
+  {
+    return false;
+  }
+  if ((length == 0U) || (length > sizeof(Config)))
+  {
+    return false;
+  }
+
+  uint32_t crc_calc = Crc32_Calc(buf, LEGACY_CRC_OFFSET);
+  if (crc_calc != crc_stored)
+  {
+    return false;
+  }
+
+  memset(out, 0, sizeof(Config));
+  memcpy(out, &buf[LEGACY_HEADER_SIZE], length);
+  *seq_out = seq;
+  return true;
+}
+
+static bool Legacy_Load(Config *out)
+{
+  bool found = false;
+  uint32_t best_seq = 0U;
+
+  const uint32_t pages[2] = {CFG_SLOT0_ADDR, CFG_SLOT1_ADDR};
+  for (uint32_t p = 0U; p < 2U; p++)
+  {
+    uint32_t page_addr = pages[p];
+    uint32_t slots = (uint32_t)(CFG_PAGE_SIZE / LEGACY_RECORD_SIZE);
+    for (uint32_t slot = 0U; slot < slots; slot++)
+    {
+      uint32_t addr = page_addr + slot * LEGACY_RECORD_SIZE;
+      Config tmp;
+      uint32_t seq = 0U;
+      if (Legacy_ReadRecord(addr, &tmp, &seq))
+      {
+        if (!found || (seq > best_seq))
+        {
+          *out = tmp;
+          best_seq = seq;
+          found = true;
+        }
+      }
+    }
+  }
+
+  return found;
+}
+
+static void Clamp_Config(Config *cfg)
+{
+  if (cfg == NULL)
+  {
+    return;
+  }
+
+  if (cfg->mode < 1U || cfg->mode > 9U)
+  {
+    cfg->mode = 1U;
+  }
+
+  if (cfg->param_layer > 1U)
+  {
+    cfg->param_layer = 0U;
+  }
+
+  if (cfg->lock_enabled > 1U)
+  {
+    cfg->lock_enabled = 0U;
+  }
+
+  if (cfg->global_brightness == 0U)
+  {
+    cfg->global_brightness = 255U;
+  }
+
+  if (cfg->gamma_profile > BRIGHT_PROFILE_LOWBOOST)
+  {
+    cfg->gamma_profile = BRIGHT_PROFILE_GAMMA22;
+  }
+
+  cfg->format_tag = FLASH_CFG_FORMAT_TAG;
+}
+
+static bool Cfg_MigrateIfNeeded(Config *cfg, uint8_t *need_save)
+{
+  if ((cfg == NULL) || (need_save == NULL))
+  {
+    return false;
+  }
+
+  *need_save = 0U;
+
+  uint32_t ver = cfg->cfg_version;
+  if (ver == 0U)
+  {
+    ver = 1U;
+    cfg->cfg_version = 1U;
+    *need_save = 1U;
+  }
+
+  if (ver > CFG_STRUCT_VERSION)
+  {
+    return false;
+  }
+
+  if (ver < 2U)
+  {
+    cfg->param_layer = 0U;
+    cfg->lock_enabled = 0U;
+    if (cfg->global_brightness == 0U)
+    {
+      cfg->global_brightness = 255U;
+    }
+    *need_save = 1U;
+    ver = 2U;
+    cfg->cfg_version = 2U;
+  }
+
+  if (ver < 3U)
+  {
+    if (cfg->gamma_profile > BRIGHT_PROFILE_LOWBOOST)
+    {
+      cfg->gamma_profile = BRIGHT_PROFILE_GAMMA22;
+    }
+    if (cfg->adv_gamma >= 200U)
+    {
+      cfg->gamma_profile = BRIGHT_PROFILE_LOWBOOST;
+    }
+    *need_save = 1U;
+    if (cfg->created_by_fw == 0U)
+    {
+      cfg->created_by_fw = FW_VERSION_U32;
+      *need_save = 1U;
+    }
+    cfg->last_migrated_by_fw = FW_VERSION_U32;
+    cfg->cfg_version = CFG_STRUCT_VERSION;
+    ver = CFG_STRUCT_VERSION;
+    *need_save = 1U;
+  }
+
+  if (cfg->created_by_fw == 0U)
+  {
+    cfg->created_by_fw = FW_VERSION_U32;
+    *need_save = 1U;
+  }
+
+  if ((cfg->last_migrated_by_fw == 0U) && (cfg->cfg_version == CFG_STRUCT_VERSION))
+  {
+    cfg->last_migrated_by_fw = FW_VERSION_U32;
+    *need_save = 1U;
+  }
+
+  Clamp_Config(cfg);
+  return true;
+}
+
 bool Cfg_Load(Config *out)
 {
   if (out == NULL)
@@ -198,6 +382,7 @@ bool Cfg_Load(Config *out)
   }
 
   bool found = false;
+  uint8_t legacy_used = 0U;
   uint32_t best_seq = 0U;
   uint32_t best_slot = CFG_SLOT0_ADDR;
 
@@ -218,13 +403,37 @@ bool Cfg_Load(Config *out)
     }
   }
 
+  if (!found)
+  {
+    found = Legacy_Load(out);
+    if (found)
+    {
+      legacy_used = 1U;
+    }
+  }
+
   if (found)
   {
+    uint8_t need_save = 0U;
+    if (!Cfg_MigrateIfNeeded(out, &need_save))
+    {
+      g_active_slot = CFG_SLOT0_ADDR;
+      g_next_seq = 1U;
+      g_has_active = 0U;
+      g_has_cached = 0U;
+      return false;
+    }
+
     g_active_slot = best_slot;
     g_next_seq = best_seq + 1U;
-    g_has_active = 1U;
+    g_has_active = (legacy_used == 0U) ? 1U : 0U;
     g_cached_cfg = *out;
     g_has_cached = 1U;
+
+    if (need_save != 0U)
+    {
+      (void)Cfg_SaveAtomic(out);
+    }
   }
   else
   {
@@ -346,10 +555,14 @@ void Cfg_ResetToDefault(Config *out)
   out->global_brightness = 255U;
   out->param_speed_idx = 0U;
   out->flash_period = 0U;
-  out->adv_gamma = 0U;
+  out->adv_gamma = 128U;
   out->adv_breath_shape = 0U;
   out->adv_phase_offset = 0U;
+  out->gamma_profile = BRIGHT_PROFILE_GAMMA22;
   out->format_tag = FLASH_CFG_FORMAT_TAG;
+  out->cfg_version = CFG_STRUCT_VERSION;
+  out->created_by_fw = FW_VERSION_U32;
+  out->last_migrated_by_fw = FW_VERSION_U32;
   for (uint8_t i = 1U; i <= 9U; i++)
   {
     out->param_level[i] = 128U;

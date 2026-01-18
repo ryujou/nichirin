@@ -12,6 +12,10 @@
 #include "drivers/tlc59116.h"
 #include "watchdog.h"
 #include "storage/cfg_store.h"
+#include "bright_map.h"
+#include "ui_damping.h"
+#include "boot_selftest.h"
+#include "fw_version.h"
 #include <string.h>
 
 #define LED_COUNT 12U
@@ -36,13 +40,30 @@
 #define BASIC_ITEM_SPEED 1U
 #define BASIC_ITEM_COUNT 2U
 
-#define ADV_ITEM_GAMMA 0U
-#define ADV_ITEM_BREATH_SHAPE 1U
-#define ADV_ITEM_FLASH_PERIOD 2U
-#define ADV_ITEM_PHASE_OFFSET 3U
-#define ADV_ITEM_COUNT 4U
+#define ADV_ITEM_GAMMA_PROFILE 0U
+#define ADV_ITEM_LOWBOOST 1U
+#define ADV_ITEM_BREATH_SHAPE 2U
+#define ADV_ITEM_FLASH_PERIOD 3U
+#define ADV_ITEM_PHASE_OFFSET 4U
+#define ADV_ITEM_COUNT 5U
 
 #define FLASH_PERIOD_STEP_MS 10U
+
+#define DAMP_ZONE_BRIGHTNESS 16U
+#define DAMP_GAIN_BRIGHTNESS 4U
+#define DAMP_ZONE_SPEED 16U
+#define DAMP_GAIN_SPEED 2U
+#define DAMP_ZONE_LOWBOOST 16U
+#define DAMP_GAIN_LOWBOOST 4U
+#define DAMP_ZONE_BREATH_SHAPE 16U
+#define DAMP_GAIN_BREATH_SHAPE 2U
+#define DAMP_ZONE_FLASH_STEPS 4U
+#define DAMP_GAIN_FLASH_STEPS 4U
+#define DAMP_ZONE_PHASE_OFFSET 16U
+#define DAMP_GAIN_PHASE_OFFSET 2U
+
+#define SAFE_TLC_DIV 5U
+#define SAFE_BREATH_MS 2000U
 
 typedef enum
 {
@@ -67,10 +88,16 @@ static uint8_t param_layer = PARAM_LAYER_BASIC;
 static uint8_t setup_item = 0U;
 static uint8_t locked = 0U;
 static uint8_t global_brightness = 255U;
-static uint8_t adv_gamma = 0U;
 static uint8_t adv_breath_shape = 0U;
 static uint8_t adv_phase_offset = 0U;
 static uint8_t last_mode = MODE_MIN;
+static uint8_t gamma_profile = BRIGHT_PROFILE_GAMMA22;
+static uint8_t lowboost_strength = 128U;
+static uint8_t safe_mode = 0U;
+static uint8_t safe_tlc_div = 0U;
+static uint32_t cfg_created_by_fw = 0U;
+static uint32_t cfg_last_migrated_fw = 0U;
+static BrightCalib s_bright_calib = {BRIGHT_PROFILE_GAMMA22, 128U};
 
 static uint8_t param_level[10] = {0};
 static uint8_t param_speed_idx = 0U;
@@ -112,24 +139,6 @@ static uint8_t Clamp_U8(int32_t value)
   return (uint8_t)value;
 }
 
-/* Function: Clamp_U16
- * Purpose: Clamp a signed value to the 0..65535 range.
- * Inputs: value - signed integer to clamp.
- * Outputs: uint16_t clamped to [0, 65535].
- */
-static uint16_t Clamp_U16(int32_t value)
-{
-  if (value < 0)
-  {
-    return 0U;
-  }
-  if (value > 65535)
-  {
-    return 65535U;
-  }
-  return (uint16_t)value;
-}
-
 /* Function: Breath_Triangle
  * Purpose: Generate a 0..255 triangle wave from a phase in [0, BREATH_CYCLE).
  * Inputs: phase - triangle wave phase.
@@ -153,6 +162,12 @@ static uint8_t Apply_Curve(uint8_t value, uint8_t shape)
   return (uint8_t)out;
 }
 
+static void Update_BrightCalib(void)
+{
+  s_bright_calib.profile = gamma_profile;
+  s_bright_calib.lowboost_strength = lowboost_strength;
+}
+
 /* Function: Apply_BrightnessGamma
  * Purpose: Apply global brightness and gamma shaping.
  * Inputs: value - 0..255 input.
@@ -161,7 +176,7 @@ static uint8_t Apply_Curve(uint8_t value, uint8_t shape)
 static uint8_t Apply_BrightnessGamma(uint8_t value)
 {
   uint16_t scaled = (uint16_t)(((uint32_t)value * global_brightness + 127U) / 255U);
-  return Apply_Curve((uint8_t)scaled, adv_gamma);
+  return Bright_Map((uint8_t)scaled, &s_bright_calib);
 }
 
 /* Function: Apply_CmdToDutyNext
@@ -175,6 +190,42 @@ static void Apply_CmdToDutyNext(const uint8_t cmd[LED_COUNT])
   WDG_TaskKick_Notify(WDG_TASK_TLC_UPDATE);
 }
 
+static void SafeMode_Tick(EncoderEvent event)
+{
+  if ((event == ENC_EVENT_TRIPLE_CLICK) || (event == ENC_EVENT_SUPER_LONGPRESS))
+  {
+    BootSelfTest_RequestRetry();
+  }
+
+  {
+    uint32_t delta_q8 = ((uint32_t)BREATH_CYCLE << 8) * EFFECT_TICK_MS / SAFE_BREATH_MS;
+    breath_phase_accum += delta_q8;
+    if (breath_phase_accum >= ((uint32_t)BREATH_CYCLE << 8))
+    {
+      breath_phase_accum -= ((uint32_t)BREATH_CYCLE << 8);
+    }
+    breath_phase = (uint16_t)(breath_phase_accum >> 8);
+    env = Breath_Triangle(breath_phase);
+    breath_lut_cur = env;
+  }
+
+  safe_tlc_div++;
+  if (safe_tlc_div < SAFE_TLC_DIV)
+  {
+    return;
+  }
+  safe_tlc_div = 0U;
+
+  {
+    uint8_t cmd[LED_COUNT];
+    for (uint8_t i = 0; i < LED_COUNT; i++)
+    {
+      cmd[i] = Apply_BrightnessGamma(breath_lut_cur);
+    }
+    Apply_CmdToDutyNext(cmd);
+  }
+}
+
 /* Function: Save_Config_Now
  * Purpose: Pack and append the current config to flash log.
  * Inputs: None (uses current state variables).
@@ -182,6 +233,11 @@ static void Apply_CmdToDutyNext(const uint8_t cmd[LED_COUNT])
  */
 static void Save_Config_Now(void)
 {
+  if (safe_mode != 0U)
+  {
+    return;
+  }
+
   Config cfg;
   memset(&cfg, 0, sizeof(cfg));
   cfg.mode = mode;
@@ -190,10 +246,14 @@ static void Save_Config_Now(void)
   cfg.global_brightness = global_brightness;
   cfg.param_speed_idx = param_speed_idx;
   cfg.flash_period = flash_period;
-  cfg.adv_gamma = adv_gamma;
+  cfg.adv_gamma = lowboost_strength;
   cfg.adv_breath_shape = adv_breath_shape;
   cfg.adv_phase_offset = adv_phase_offset;
+  cfg.gamma_profile = gamma_profile;
   cfg.format_tag = FLASH_CFG_FORMAT_TAG;
+  cfg.cfg_version = CFG_STRUCT_VERSION;
+  cfg.created_by_fw = (cfg_created_by_fw != 0U) ? cfg_created_by_fw : FW_VERSION_U32;
+  cfg.last_migrated_by_fw = (cfg_last_migrated_fw != 0U) ? cfg_last_migrated_fw : FW_VERSION_U32;
   cfg.param_level[0] = 0U;
   for (uint8_t i = 1U; i <= MODE_MAX; i++)
   {
@@ -230,10 +290,16 @@ void App_Init(void)
   setup_item = 0U;
   locked = 0U;
   global_brightness = 255U;
-  adv_gamma = 0U;
   adv_breath_shape = 0U;
   adv_phase_offset = 0U;
   last_mode = MODE_MIN;
+  gamma_profile = BRIGHT_PROFILE_GAMMA22;
+  lowboost_strength = 128U;
+  safe_mode = 0U;
+  safe_tlc_div = 0U;
+  cfg_created_by_fw = 0U;
+  cfg_last_migrated_fw = 0U;
+  Update_BrightCalib();
   param_speed_idx = 0U;
   flash_period = 0U;
   for (uint8_t i = 1U; i <= MODE_MAX; i++)
@@ -296,9 +362,21 @@ void Apply_Config(const Config *cfg)
     flash_period = Map_Param_To_Ms(param_level[7], FLASH_MIN_MS, FLASH_MAX_MS);
   }
 
-  adv_gamma = cfg->adv_gamma;
+  lowboost_strength = cfg->adv_gamma;
   adv_breath_shape = cfg->adv_breath_shape;
   adv_phase_offset = cfg->adv_phase_offset;
+  gamma_profile = cfg->gamma_profile;
+  cfg_created_by_fw = cfg->created_by_fw;
+  cfg_last_migrated_fw = cfg->last_migrated_by_fw;
+  if (global_brightness == 0U)
+  {
+    global_brightness = 255U;
+  }
+  if (gamma_profile > BRIGHT_PROFILE_LOWBOOST)
+  {
+    gamma_profile = BRIGHT_PROFILE_GAMMA22;
+  }
+  Update_BrightCalib();
 }
 
 /* Function: Effect_Tick
@@ -310,6 +388,13 @@ void Effect_Tick(void)
 {
   int16_t delta = Encoder_GetDeltaAccel();
   EncoderEvent event = Encoder_GetKeyEvent();
+
+  if (safe_mode != 0U)
+  {
+    SafeMode_Tick(event);
+    WDG_TaskKick_Notify(WDG_TASK_EFFECT_10MS);
+    return;
+  }
 
   if (locked != 0U)
   {
@@ -338,6 +423,7 @@ void Effect_Tick(void)
     setup_item = 0U;
     save_pending = 1U;
     save_delay_ms = 0U;
+    Damping_ResetAll();
     event = ENC_EVENT_NONE;
   }
 
@@ -368,6 +454,7 @@ void Effect_Tick(void)
       setup_item = 0U;
       save_pending = 0U;
       save_delay_ms = 0U;
+      Damping_ResetAll();
     }
     else
     {
@@ -396,6 +483,7 @@ void Effect_Tick(void)
     {
       uint8_t count = (param_layer == PARAM_LAYER_BASIC) ? BASIC_ITEM_COUNT : ADV_ITEM_COUNT;
       setup_item = (uint8_t)((setup_item + 1U) % count);
+      Damping_ResetAll();
     }
     event = ENC_EVENT_NONE;
   }
@@ -408,7 +496,9 @@ void Effect_Tick(void)
       {
         if (setup_item == BASIC_ITEM_BRIGHTNESS)
         {
-          int32_t next = (int32_t)global_brightness + delta;
+          int16_t damp = Damping_Apply(DAMP_PARAM_BRIGHTNESS, delta, global_brightness,
+                                       0U, 255U, DAMP_ZONE_BRIGHTNESS, DAMP_GAIN_BRIGHTNESS);
+          int32_t next = (int32_t)global_brightness + damp;
           global_brightness = Clamp_U8(next);
         }
         else
@@ -419,7 +509,9 @@ void Effect_Tick(void)
             idx = MODE_MIN;
           }
           {
-            int32_t next = (int32_t)param_level[idx] + delta;
+            int16_t damp = Damping_Apply(DAMP_PARAM_SPEED, delta, param_level[idx],
+                                         0U, 255U, DAMP_ZONE_SPEED, DAMP_GAIN_SPEED);
+            int32_t next = (int32_t)param_level[idx] + damp;
             param_level[idx] = Clamp_U8(next);
           }
           if (idx == 7U)
@@ -432,28 +524,65 @@ void Effect_Tick(void)
       {
         switch (setup_item)
         {
-          case ADV_ITEM_GAMMA:
-            adv_gamma = Clamp_U8((int32_t)adv_gamma + delta);
+          case ADV_ITEM_GAMMA_PROFILE:
+            if (delta != 0)
+            {
+              int32_t next = (int32_t)gamma_profile + ((delta > 0) ? 1 : -1);
+              if (next < 0)
+              {
+                next = 0;
+              }
+              if (next > (int32_t)BRIGHT_PROFILE_LOWBOOST)
+              {
+                next = BRIGHT_PROFILE_LOWBOOST;
+              }
+              gamma_profile = (uint8_t)next;
+              Update_BrightCalib();
+            }
+            break;
+          case ADV_ITEM_LOWBOOST:
+            {
+              int16_t damp = Damping_Apply(DAMP_PARAM_LOWBOOST, delta, lowboost_strength,
+                                           0U, 255U, DAMP_ZONE_LOWBOOST, DAMP_GAIN_LOWBOOST);
+              lowboost_strength = Clamp_U8((int32_t)lowboost_strength + damp);
+              Update_BrightCalib();
+            }
             break;
           case ADV_ITEM_BREATH_SHAPE:
-            adv_breath_shape = Clamp_U8((int32_t)adv_breath_shape + delta);
+            {
+              int16_t damp = Damping_Apply(DAMP_PARAM_BREATH_SHAPE, delta, adv_breath_shape,
+                                           0U, 255U, DAMP_ZONE_BREATH_SHAPE, DAMP_GAIN_BREATH_SHAPE);
+              adv_breath_shape = Clamp_U8((int32_t)adv_breath_shape + damp);
+            }
             break;
           case ADV_ITEM_FLASH_PERIOD:
             {
-              int32_t next = (int32_t)flash_period + (int32_t)delta * FLASH_PERIOD_STEP_MS;
-              if (next < (int32_t)FLASH_MIN_MS)
+              uint16_t steps_max = (uint16_t)((FLASH_MAX_MS - FLASH_MIN_MS) / FLASH_PERIOD_STEP_MS);
+              uint16_t steps = 0U;
+              if (flash_period >= FLASH_MIN_MS)
               {
-                next = FLASH_MIN_MS;
+                steps = (uint16_t)((flash_period - FLASH_MIN_MS) / FLASH_PERIOD_STEP_MS);
               }
-              if (next > (int32_t)FLASH_MAX_MS)
+              int16_t damp = Damping_Apply(DAMP_PARAM_FLASH_PERIOD, delta, steps,
+                                           0U, steps_max, DAMP_ZONE_FLASH_STEPS, DAMP_GAIN_FLASH_STEPS);
+              int32_t next_steps = (int32_t)steps + damp;
+              if (next_steps < 0)
               {
-                next = FLASH_MAX_MS;
+                next_steps = 0;
               }
-              flash_period = Clamp_U16(next);
+              if (next_steps > (int32_t)steps_max)
+              {
+                next_steps = steps_max;
+              }
+              flash_period = (uint16_t)(FLASH_MIN_MS + (uint16_t)next_steps * FLASH_PERIOD_STEP_MS);
             }
             break;
           case ADV_ITEM_PHASE_OFFSET:
-            adv_phase_offset = Clamp_U8((int32_t)adv_phase_offset + delta);
+            {
+              int16_t damp = Damping_Apply(DAMP_PARAM_PHASE_OFFSET, delta, adv_phase_offset,
+                                           0U, 255U, DAMP_ZONE_PHASE_OFFSET, DAMP_GAIN_PHASE_OFFSET);
+              adv_phase_offset = Clamp_U8((int32_t)adv_phase_offset + damp);
+            }
             break;
           default:
             break;
@@ -571,8 +700,18 @@ void Effect_Tick(void)
       {
         switch (setup_item)
         {
-          case ADV_ITEM_GAMMA:
-            ui_level = adv_gamma;
+          case ADV_ITEM_GAMMA_PROFILE:
+            if (BRIGHT_PROFILE_LOWBOOST != 0U)
+            {
+              ui_level = (uint8_t)((uint16_t)gamma_profile * 255U / BRIGHT_PROFILE_LOWBOOST);
+            }
+            else
+            {
+              ui_level = gamma_profile;
+            }
+            break;
+          case ADV_ITEM_LOWBOOST:
+            ui_level = lowboost_strength;
             break;
           case ADV_ITEM_BREATH_SHAPE:
             ui_level = adv_breath_shape;
@@ -709,4 +848,22 @@ void Effect_Tick(void)
   }
 
   WDG_TaskKick_Notify(WDG_TASK_EFFECT_10MS);
+}
+
+void App_SetSafeMode(uint8_t enable)
+{
+  safe_mode = (enable != 0U) ? 1U : 0U;
+  if (safe_mode != 0U)
+  {
+    run_state = RUN_STATE_RUN;
+    save_pending = 0U;
+    save_delay_ms = 0U;
+    locked = 0U;
+    safe_tlc_div = 0U;
+  }
+}
+
+uint8_t App_IsSafeMode(void)
+{
+  return safe_mode;
 }

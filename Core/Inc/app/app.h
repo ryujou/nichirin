@@ -17,5 +17,7 @@
 void App_Init(void);
 void Apply_Config(const Config *cfg);
 void Effect_Tick(void);
+void App_SetSafeMode(uint8_t enable);
+uint8_t App_IsSafeMode(void);
 
 #endif /* APP_APP_H */

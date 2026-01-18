@@ -46,10 +46,13 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
     Core/Src/app/app.c
+    Core/Src/boot_selftest.c
+    Core/Src/bright_map.c
     Core/Src/drivers/encoder.c
     Core/Src/drivers/tlc59116.c
     Core/Src/storage/cfg_store.c
     Core/Src/storage/flash_cfg.c
+    Core/Src/ui_damping.c
     Core/Src/watchdog.c
 )
 
