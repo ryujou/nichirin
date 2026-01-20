@@ -1033,6 +1033,34 @@ class MainWindow(QWidget):
     def refresh_ports(self):
         self.port_box.clear()
         ports = list_ports.comports()
+
+        def _port_priority(p):
+            desc = (p.description or "").lower()
+            name = (p.device or "").lower()
+            hwid = (getattr(p, "hwid", "") or "").lower()
+
+            # prefer common USB-UART chips
+            chip_keywords = (
+                "ch340", "ch341", "ch9102", "cp210", "cp2102", "cp210x",
+                "ft232", "ftdi", "pl2303",
+            )
+            if any(k in desc or k in name or k in hwid for k in chip_keywords):
+                return (0, name)
+
+            # prefer bluetooth serial ports
+            bt_keywords = (
+                "bluetooth", "rfcomm", "serial over bluetooth",
+            )
+            if any(k in desc for k in bt_keywords):
+                return (1, name)
+
+            # de-prioritize empty/legacy com1 style
+            if name == "com1" or "communications port" in desc:
+                return (3, name)
+
+            return (2, name)
+
+        ports = sorted(ports, key=_port_priority)
         for p in ports:
             self.port_box.addItem(f"{p.device} ({p.description})", p.device)
         if self.port_box.count() == 0:

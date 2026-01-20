@@ -25,6 +25,7 @@
 - [掉电记忆说明](#掉电记忆说明)
 - [环境与依赖](#环境与依赖)
 - [快速开始](#快速开始)
+- [上位机脚本（PC 端）](#上位机脚本pc-端)
 - [目录结构](#目录结构)
 - [重新生成 CubeMX 代码](#重新生成-cubemx-代码)
 - [常见问题](#常见问题)
@@ -149,17 +150,76 @@ cmake --build --preset Debug --target clean
 - `build/Debug/nichirin_V3.elf`
 - `build/Debug/nichirin_V3.map`
 
+## 上位机脚本（PC 端）
+
+PC 端脚本位于 [Script/nichirin_pc.py](Script/nichirin_pc.py)，用于从麦克风或本地媒体文件提取 12 段频谱，并通过 UART 实时发送到板端。支持音频/视频播放、拖拽文件、预分析锁定风格、全局 AGC，以及播放进度条。
+
+### 依赖与环境
+
+- Python 3.9+
+- 依赖包：PyQt6、sounddevice、pyserial、numpy
+- 需要安装 FFmpeg 并加入 PATH（用于文件预分析解码）
+
+### 安装依赖
+
+```sh
+pip install PyQt6 sounddevice pyserial numpy
+```
+
+### 使用步骤
+
+1. 连接板卡并确认串口号。
+2. 运行脚本：
+
+```sh
+python Script/nichirin_pc.py
+```
+
+3. 在界面中选择串口与波特率，设置发送频率（默认 400Hz）。
+4. 选择输入源：麦克风或文件。
+5. 文件模式：打开音频/视频，等待预分析完成后点击播放。
+6. 点击“开始（频谱+发送）”开始串口发送。
+
+### 说明
+
+- 文件模式会先整首预分析，锁定风格与每段参考曲线，避免播放中漂移。
+- 仅需显示视频可保持静音，频谱由解码音频生成。
+- 发送协议为 16 字节帧：地址 + 功能码 + 12 段数据 + CRC16(Modbus)。
+
 ## 目录结构
 
 ```
 nichirin_V3/
-├── Core/                    # 应用代码 (main, app, drivers, storage)
-├── Drivers/                 # CMSIS 与 HAL 驱动
-├── cmake/                   # 工具链与 CubeMX CMake 集成
-├── assets/                  # 图片等资源
-├── startup_stm32g030xx.s    # 启动文件
+├── .git/                    # Git 元数据
+├── .vscode/                 # VS Code 配置/任务
+├── .settings/               # IDE/工具配置
+├── .clangd                  # clangd 配置
+├── .mxproject               # CubeMX 工程元信息
+├── CMakeLists.txt           # 主构建脚本
+├── CMakePresets.json        # 预设构建配置
+├── README.md                # 项目说明
+├── nichirin_V3.ioc          # CubeMX 工程文件
 ├── STM32G030XX_FLASH.ld     # 链接脚本
-└── nichirin_V3.ioc          # CubeMX 工程文件
+├── startup_stm32g030xx.s    # 启动文件
+├── cmake/                   # 工具链与 CubeMX CMake 集成
+│   └── stm32cubemx/          # CubeMX 生成的 CMake 片段
+├── Core/                    # 应用代码 (main/app/drivers/storage/utils)
+│   ├── Inc/                  # 头文件
+│   │   ├── drivers/          # 外设驱动头文件
+│   │   ├── storage/          # Flash 配置存储
+│   │   └── utils/            # 工具函数
+│   └── Src/                  # 源文件
+│       ├── drivers/          # 外设驱动实现
+│       ├── storage/          # Flash 配置存储实现
+│       └── utils/            # 工具函数实现
+├── Drivers/                 # CMSIS 与 HAL 驱动
+│   ├── CMSIS/                # ARM CMSIS
+│   └── STM32G0xx_HAL_Driver/ # STM32G0 HAL
+├── Script/                  # PC 上位机脚本
+│   └── nichirin_pc.py        # 频谱 UART 发送与播放器
+└── build/                   # 构建输出
+  ├── Debug/                # Debug 构建
+  └── Release/              # Release 构建
 ```
 
 ## 重新生成 CubeMX 代码
