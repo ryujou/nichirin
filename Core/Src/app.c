@@ -38,7 +38,7 @@ extern UART_HandleTypeDef huart2;
 #define LEDS_PER_GROUP 5U
 #define LED_COUNT (GROUP_COUNT * LEDS_PER_GROUP)
 
-#define FRAME_PERIOD_MS 5U
+#define FRAME_PERIOD_MS 2U
 #define FLASH_MS 100U
 #define SPECTRUM_TIMEOUT_MS 200U
 #define SPECTRUM_SMOOTH_SHIFT 3U
@@ -749,10 +749,13 @@ void app_loop(void)
     {
       if (s_ui_in_setting == 0U)
       {
-        s_ui_in_setting = 1U;
-        s_ui_page = 0U;
-        s_ui_item = 0U;
-        App_FlashAll(1U);
+        if (s_groups[0].mode != 6U)
+        {
+          s_ui_in_setting = 1U;
+          s_ui_page = 0U;
+          s_ui_item = 0U;
+          App_FlashAll(1U);
+        }
       }
       else
       {
