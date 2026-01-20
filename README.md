@@ -152,7 +152,15 @@ cmake --build --preset Debug --target clean
 
 ## 上位机脚本（PC 端）
 
-PC 端脚本位于 [Script/nichirin_pc.py](Script/nichirin_pc.py)，用于从麦克风或本地媒体文件提取 12 段频谱，并通过 UART 实时发送到板端。支持音频/视频播放、拖拽文件、预分析锁定风格、全局 AGC，以及播放进度条。
+PC 端入口位于 [Script/nichirin_pc.py](Script/nichirin_pc.py)。功能已拆分为多个模块，便于维护：
+
+- [Script/gui_app.py](Script/gui_app.py)：GUI 主界面与交互逻辑
+- [Script/audio_threads.py](Script/audio_threads.py)：麦克风采集、文件预分析、文件频谱线程
+- [Script/dsp.py](Script/dsp.py)：频谱分箱与自适应处理
+- [Script/serial_sender.py](Script/serial_sender.py)：串口发送线程
+- [Script/pc_common.py](Script/pc_common.py)：协议与常量
+
+整体功能：从麦克风或本地媒体文件提取 12 段频谱，通过 UART 实时发送到板端。支持音频/视频播放、拖拽文件、预分析锁定风格、全局 AGC，以及播放进度条。
 
 ### 依赖与环境
 
@@ -208,6 +216,13 @@ nichirin_V3/
 │   │   ├── drivers/          # 外设驱动头文件
 │   │   ├── storage/          # Flash 配置存储
 │   │   └── utils/            # 工具函数
+├── Script/                  # PC 上位机脚本
+│   ├── nichirin_pc.py        # 入口
+│   ├── gui_app.py            # GUI 主界面
+│   ├── audio_threads.py      # 音频采集/预分析/文件频谱线程
+│   ├── dsp.py                # DSP 与自适应处理
+│   ├── serial_sender.py      # 串口发送线程
+│   └── pc_common.py          # 协议与常量
 │   └── Src/                  # 源文件
 │       ├── drivers/          # 外设驱动实现
 │       ├── storage/          # Flash 配置存储实现
