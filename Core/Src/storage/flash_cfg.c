@@ -28,7 +28,6 @@
 #include "storage/flash_cfg.h"
 #include "stm32g0xx_hal.h"
 #include "fw_version.h"
-#include "bright_map.h"
 #include <string.h>
 
 #ifndef CFG_PAGE_SIZE
@@ -201,7 +200,7 @@ void FlashCfg_InitDefaults(Config *out)
   out->adv_gamma = 128U;
   out->adv_breath_shape = 0U;
   out->adv_phase_offset = 0U;
-  out->gamma_profile = BRIGHT_PROFILE_GAMMA22;
+  out->gamma_profile = 0U;
   out->format_tag = FLASH_CFG_FORMAT_TAG;
   out->cfg_version = CFG_STRUCT_VERSION;
   out->created_by_fw = FW_VERSION_U32;
