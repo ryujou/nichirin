@@ -7,8 +7,6 @@
 #define BOOT_I2C_SCL_PIN GPIO_PIN_3
 #define BOOT_I2C_SDA_PORT GPIOB
 #define BOOT_I2C_SDA_PIN GPIO_PIN_7
-
-#define BOOT_I2C_TIMEOUT_MS 5U
 #define BOOT_ENCODER_SAMPLE_COUNT 3U
 
 typedef enum
@@ -25,7 +23,6 @@ static BootState s_state = BOOT_STATE_IDLE;
 static uint8_t s_done = 0U;
 static uint8_t s_safe_mode = 0U;
 static uint8_t s_enc_samples = 0U;
-static I2C_HandleTypeDef *s_hi2c = NULL;
 static BootDiag s_diag = {0};
 
 static void Boot_SetError(BootErrorFlags flag, uint8_t code)
@@ -34,9 +31,8 @@ static void Boot_SetError(BootErrorFlags flag, uint8_t code)
   s_diag.last_error = code;
 }
 
-void BootSelfTest_Init(I2C_HandleTypeDef *hi2c)
+void BootSelfTest_Init(void)
 {
-  s_hi2c = hi2c;
   s_state = BOOT_STATE_CFG;
   s_done = 0U;
   s_safe_mode = 0U;
@@ -90,19 +86,7 @@ void BootSelfTest_Tick10ms(void)
       break;
 
     case BOOT_STATE_TLC_ACK:
-      if (s_hi2c != NULL)
-      {
-        uint8_t reg = 0U;
-        if (HAL_I2C_Mem_Read(s_hi2c, TLC59116_I2C_ADDR, 0x00U, I2C_MEMADD_SIZE_8BIT,
-                             &reg, 1U, BOOT_I2C_TIMEOUT_MS) != HAL_OK)
-        {
-          Boot_SetError(BOOT_ERR_TLC_ACK, 3U);
-        }
-      }
-      else
-      {
-        Boot_SetError(BOOT_ERR_TLC_ACK, 3U);
-      }
+      /* Skip I2C ACK test in soft-I2C bring-up. */
       s_state = BOOT_STATE_ENCODER;
       break;
 

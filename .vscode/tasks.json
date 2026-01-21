@@ -7,7 +7,7 @@
       "command": "STM32_Programmer_CLI",
       "args": [
         "-c", "port=SWD",
-        "-w", "${workspaceFolder}\\build\\Debug\\nichirin_V2.elf",
+        "-w", "${workspaceFolder}\\build\\Release\\nichirin_V2.elf",
         "-v",
         "-rst"
       ],

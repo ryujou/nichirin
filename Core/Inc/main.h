@@ -57,12 +57,16 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define SDA_Pin GPIO_PIN_7
+#define SDA_GPIO_Port GPIOB
 #define ENC_A_Pin GPIO_PIN_0
 #define ENC_A_GPIO_Port GPIOA
 #define ENC_B_Pin GPIO_PIN_1
 #define ENC_B_GPIO_Port GPIOA
 #define ENC_K_Pin GPIO_PIN_2
 #define ENC_K_GPIO_Port GPIOA
+#define SCL_Pin GPIO_PIN_3
+#define SCL_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 

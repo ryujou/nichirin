@@ -49,11 +49,11 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/boot_selftest.c
     Core/Src/bright_map.c
     Core/Src/drivers/encoder.c
+    Core/Src/drivers/soft_i2c.c
     Core/Src/drivers/tlc59116.c
     Core/Src/storage/cfg_store.c
     Core/Src/storage/flash_cfg.c
     Core/Src/ui_damping.c
-    Core/Src/watchdog.c
 )
 
 # Add include paths

@@ -20,7 +20,7 @@ typedef struct
   uint8_t encoder_warn;
 } BootDiag;
 
-void BootSelfTest_Init(I2C_HandleTypeDef *hi2c);
+void BootSelfTest_Init(void);
 void BootSelfTest_Tick10ms(void);
 uint8_t BootSelfTest_IsDone(void);
 uint8_t BootSelfTest_IsSafeMode(void);

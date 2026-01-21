@@ -19,6 +19,7 @@
 #define ENCODER_ACCEL_FAST_MS 60U
 #define ENCODER_ACCEL_MID_STEP 4
 #define ENCODER_ACCEL_FAST_STEP 16
+#define ENCODER_STEP_FILTER_MS 5U
 
 static GPIO_TypeDef *s_a_port;
 static GPIO_TypeDef *s_b_port;
@@ -33,6 +34,7 @@ static uint8_t s_key_integrator;
 static uint8_t s_key_stable;
 static uint8_t s_key_last;
 static uint16_t s_key_press_ms;
+static uint8_t s_key_long_fired;
 static uint16_t s_click_timer_ms;
 static uint8_t s_click_count;
 static volatile EncoderEvent s_key_event;
@@ -40,6 +42,8 @@ static uint8_t s_initialized;
 static uint16_t s_ms_counter;
 static uint16_t s_last_detent_ms;
 static volatile int16_t s_scaled_delta;
+static uint16_t s_last_step_ms;
+static int8_t s_last_step_dir;
 
 /* Function: Encoder_AccumAccel
  * Purpose: Update accelerated delta based on detent interval.
@@ -109,6 +113,7 @@ void Encoder_Init(GPIO_TypeDef *a_port, uint16_t a_pin,
   s_key_stable = Encoder_ReadKeyPressed();
   s_key_last = s_key_stable;
   s_key_press_ms = 0;
+  s_key_long_fired = 0U;
   s_click_timer_ms = 0U;
   s_click_count = 0U;
   s_key_event = ENC_EVENT_NONE;
@@ -116,6 +121,20 @@ void Encoder_Init(GPIO_TypeDef *a_port, uint16_t a_pin,
   s_ms_counter = 0U;
   s_last_detent_ms = 0U;
   s_scaled_delta = 0;
+  s_last_step_ms = 0U;
+  s_last_step_dir = 0;
+}
+
+static uint8_t Encoder_AcceptStep(int8_t direction)
+{
+  uint16_t dt = (uint16_t)(s_ms_counter - s_last_step_ms);
+  if ((dt < ENCODER_STEP_FILTER_MS) && (direction != s_last_step_dir))
+  {
+    return 0U;
+  }
+  s_last_step_ms = s_ms_counter;
+  s_last_step_dir = direction;
+  return 1U;
 }
 
 /* Function: Encoder_1msTick
@@ -148,15 +167,29 @@ void Encoder_1msTick(void)
       s_edge_accum = (int8_t)(s_edge_accum + delta);
       if (s_edge_accum >= ENCODER_EDGES_PER_STEP)
       {
-        s_edge_accum = (int8_t)(s_edge_accum - ENCODER_EDGES_PER_STEP);
-        s_detent_delta++;
-        Encoder_AccumAccel(1);
+        if (Encoder_AcceptStep(1) != 0U)
+        {
+          s_edge_accum = (int8_t)(s_edge_accum - ENCODER_EDGES_PER_STEP);
+          s_detent_delta++;
+          Encoder_AccumAccel(1);
+        }
+        else
+        {
+          s_edge_accum = 0;
+        }
       }
       else if (s_edge_accum <= -ENCODER_EDGES_PER_STEP)
       {
-        s_edge_accum = (int8_t)(s_edge_accum + ENCODER_EDGES_PER_STEP);
-        s_detent_delta--;
-        Encoder_AccumAccel(-1);
+        if (Encoder_AcceptStep(-1) != 0U)
+        {
+          s_edge_accum = (int8_t)(s_edge_accum + ENCODER_EDGES_PER_STEP);
+          s_detent_delta--;
+          Encoder_AccumAccel(-1);
+        }
+        else
+        {
+          s_edge_accum = 0;
+        }
       }
     }
   }
@@ -193,30 +226,33 @@ void Encoder_1msTick(void)
       {
         s_key_press_ms++;
       }
+
+      if ((s_key_press_ms >= ENCODER_SUPERLONG_MS) && (s_key_long_fired == 0U))
+      {
+        s_click_count = 0U;
+        s_click_timer_ms = 0U;
+        if (s_key_event == ENC_EVENT_NONE)
+        {
+          s_key_event = ENC_EVENT_SUPER_LONGPRESS;
+        }
+        s_key_long_fired = 1U;
+      }
+      else if ((s_key_press_ms >= ENCODER_LONGPRESS_MS) && (s_key_long_fired == 0U))
+      {
+        s_click_count = 0U;
+        s_click_timer_ms = 0U;
+        if (s_key_event == ENC_EVENT_NONE)
+        {
+          s_key_event = ENC_EVENT_LONGPRESS;
+        }
+        s_key_long_fired = 1U;
+      }
     }
     else
     {
       if (s_key_last != 0U)
       {
-        if (s_key_press_ms >= ENCODER_SUPERLONG_MS)
-        {
-          s_click_count = 0U;
-          s_click_timer_ms = 0U;
-          if (s_key_event == ENC_EVENT_NONE)
-          {
-            s_key_event = ENC_EVENT_SUPER_LONGPRESS;
-          }
-        }
-        else if (s_key_press_ms >= ENCODER_LONGPRESS_MS)
-        {
-          s_click_count = 0U;
-          s_click_timer_ms = 0U;
-          if (s_key_event == ENC_EVENT_NONE)
-          {
-            s_key_event = ENC_EVENT_LONGPRESS;
-          }
-        }
-        else if (s_key_press_ms > 0U)
+        if ((s_key_long_fired == 0U) && (s_key_press_ms > 0U))
         {
           if (s_click_count < 3U)
           {
@@ -225,6 +261,7 @@ void Encoder_1msTick(void)
           s_click_timer_ms = 0U;
         }
         s_key_press_ms = 0U;
+        s_key_long_fired = 0U;
       }
     }
     s_key_last = s_key_stable;

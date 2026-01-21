@@ -23,11 +23,8 @@
 /* USER CODE BEGIN Includes */
 #include "app/app.h"
 #include "drivers/encoder.h"
+#include "drivers/soft_i2c.h"
 #include "drivers/tlc59116.h"
-#include "boot_selftest.h"
-#include "storage/cfg_store.h"
-#include "storage/flash_cfg.h"
-#include "watchdog.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -46,9 +43,6 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-I2C_HandleTypeDef hi2c1;
-
-IWDG_HandleTypeDef hiwdg;
 
 /* USER CODE BEGIN PV */
 
@@ -57,8 +51,6 @@ IWDG_HandleTypeDef hiwdg;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_I2C1_Init(void);
-static void MX_IWDG_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -97,58 +89,61 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_I2C1_Init();
-  MX_IWDG_Init();
   /* USER CODE BEGIN 2 */
-  /* CubeMX pinout reminder: set I2C1 SCL=PB3, SDA=PB7 to match TLC59116 wiring. */
+  /* CubeMX pinout reminder: SCL=PB3, SDA=PB7 (software I2C). */
 
-  WDG_Init(&hiwdg);
-  BootSelfTest_Init(&hi2c1);
+  soft_i2c_init();
 
-  /* Initialize LED driver and encoder sampling. */
-  (void)TLC59116_Init(&hi2c1);
-  Encoder_Init(ENC_A_GPIO_Port, ENC_A_Pin,
-               ENC_B_GPIO_Port, ENC_B_Pin,
-               ENC_K_GPIO_Port, ENC_K_Pin);
-  App_Init();
-
-  /* Load persisted config and apply; write defaults if missing. */
+  if (!TLC59116_InitSoft())
   {
-    Config cfg;
-    if (Cfg_Load(&cfg))
+    while (1)
     {
-      Apply_Config(&cfg);
-    }
-    else
-    {
-      Cfg_ResetToDefault(&cfg);
-      Apply_Config(&cfg);
-      (void)Cfg_SaveAtomic(&cfg);
     }
   }
 
-  /* Send an initial frame to avoid blank output. */
-  Effect_Tick();
+  (void)TLC59116_SetAllPWMMode();
+
+  Encoder_Init(ENC_A_GPIO_Port, ENC_A_Pin,
+               ENC_B_GPIO_Port, ENC_B_Pin,
+               ENC_K_GPIO_Port, ENC_K_Pin);
+
+  App_Init();
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
   {
-    /* USER CODE END WHILE */
+    uint32_t last_ms = HAL_GetTick();
+    uint32_t acc_10ms = 0U;
 
-    /* USER CODE BEGIN 3 */
-    /* 10 ms tick to drive application logic. */
-    static uint32_t last_tick = 0U;
-    uint32_t now = HAL_GetTick();
-    if ((now - last_tick) >= EFFECT_TICK_MS)
+    while (1)
     {
-      last_tick += EFFECT_TICK_MS;
-      BootSelfTest_Tick10ms();
-      App_SetSafeMode(BootSelfTest_IsSafeMode());
-      Effect_Tick();
-      WDG_Tick10ms();
+      /* USER CODE END WHILE */
+
+      /* USER CODE BEGIN 3 */
+      uint32_t now = HAL_GetTick();
+      uint32_t delta = now - last_ms;
+      if (delta == 0U)
+      {
+        continue;
+      }
+      if (delta > 50U)
+      {
+        delta = 50U;
+      }
+
+      for (uint32_t step = 0U; step < delta; step++)
+      {
+        last_ms++;
+        Encoder_1msTick();
+        acc_10ms++;
+        if (acc_10ms >= EFFECT_TICK_MS)
+        {
+          acc_10ms -= EFFECT_TICK_MS;
+          Effect_Tick();
+        }
+      }
     }
   }
   /* USER CODE END 3 */
@@ -170,11 +165,10 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_LSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSIDiv = RCC_HSI_DIV1;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
   RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV1;
@@ -201,83 +195,6 @@ void SystemClock_Config(void)
 }
 
 /**
-  * @brief I2C1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_I2C1_Init(void)
-{
-
-  /* USER CODE BEGIN I2C1_Init 0 */
-
-  /* USER CODE END I2C1_Init 0 */
-
-  /* USER CODE BEGIN I2C1_Init 1 */
-
-  /* USER CODE END I2C1_Init 1 */
-  hi2c1.Instance = I2C1;
-  hi2c1.Init.Timing = 0x10B17DB5;
-  hi2c1.Init.OwnAddress1 = 0;
-  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
-  hi2c1.Init.OwnAddress2 = 0;
-  hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
-  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Analogue filter
-  */
-  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Digital filter
-  */
-  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN I2C1_Init 2 */
-
-  /* USER CODE END I2C1_Init 2 */
-
-}
-
-/**
-  * @brief IWDG Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_IWDG_Init(void)
-{
-
-  /* USER CODE BEGIN IWDG_Init 0 */
-
-  /* USER CODE END IWDG_Init 0 */
-
-  /* USER CODE BEGIN IWDG_Init 1 */
-
-  /* USER CODE END IWDG_Init 1 */
-  hiwdg.Instance = IWDG;
-  hiwdg.Init.Prescaler = IWDG_PRESCALER_4;
-  hiwdg.Init.Window = 4095;
-  hiwdg.Init.Reload = 4095;
-  if (HAL_IWDG_Init(&hiwdg) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN IWDG_Init 2 */
-
-  /* USER CODE END IWDG_Init 2 */
-
-}
-
-/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -293,11 +210,31 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
 
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, SDA_Pin|SCL_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : SDA_Pin */
+  GPIO_InitStruct.Pin = SDA_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  HAL_GPIO_Init(SDA_GPIO_Port, &GPIO_InitStruct);
+
   /*Configure GPIO pins : ENC_A_Pin ENC_B_Pin ENC_K_Pin */
   GPIO_InitStruct.Pin = ENC_A_Pin|ENC_B_Pin|ENC_K_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : SCL_Pin */
+  GPIO_InitStruct.Pin = SCL_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  HAL_GPIO_Init(SCL_GPIO_Port, &GPIO_InitStruct);
+
+  /**/
+  __HAL_SYSCFG_FASTMODEPLUS_ENABLE(SYSCFG_FASTMODEPLUS_PB7);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -305,12 +242,6 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-void HAL_SYSTICK_Callback(void)
-{
-  /* 1 ms encoder sampling and debounce. */
-  Encoder_1msTick();
-  WDG_TaskKick_Notify(WDG_TASK_ENCODER_1MS);
-}
 
 /* USER CODE END 4 */
 

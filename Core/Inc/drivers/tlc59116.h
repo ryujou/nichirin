@@ -2,7 +2,7 @@
 /**
   ******************************************************************************
   * @file           : tlc59116.h
-  * @brief          : TLC59116 16-channel LED driver interface (I2C)
+   * @brief          : TLC59116 16-channel LED driver interface (soft I2C)
   ******************************************************************************
   */
 /* USER CODE END Header */
@@ -11,15 +11,15 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include "stm32g0xx_hal.h"
+#define TLC_ADDR_7B 0x60U
 
-#define TLC59116_I2C_ADDR_7BIT 0x60U
-#define TLC59116_I2C_ADDR (TLC59116_I2C_ADDR_7BIT << 1)
-#define TLC59116_I2C_TIMEOUT_MS 10U
-
-bool TLC59116_Init(I2C_HandleTypeDef *hi2c);
+bool TLC59116_InitSoft(void);
 bool TLC59116_SetPWM(uint8_t ch, uint8_t val);
 bool TLC59116_SetPWM12(const uint8_t pwm12[12]);
-void TLC59116_AllOff(void);
+bool TLC59116_SetPWM12_Single(const uint8_t pwm12[12]);
+bool TLC59116_SetAllPWM(uint8_t pwm);
+bool TLC59116_SetAllPWMMode(void);
+bool TLC59116_SetAllOn(void);
+bool TLC59116_SetAllOff(void);
 
 #endif /* DRIVERS_TLC59116_H */
