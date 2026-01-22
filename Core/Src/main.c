@@ -119,9 +119,9 @@ int main(void)
 
     while (1)
     {
-      /* USER CODE END WHILE */
+    /* USER CODE END WHILE */
 
-      /* USER CODE BEGIN 3 */
+    /* USER CODE BEGIN 3 */
       uint32_t now = HAL_GetTick();
       uint32_t delta = now - last_ms;
       if (delta == 0U)

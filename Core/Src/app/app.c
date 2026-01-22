@@ -24,6 +24,11 @@
 #define BREATH_MIN_MS 200U
 #define BREATH_MAX_MS 2000U
 
+#define FULL_BRIGHT_DERATE_THRESHOLD 200U
+#define FULL_BRIGHT_DERATE_LEVEL 128U
+#define FULL_BRIGHT_DERATE_MS 60000U
+#define FULL_BRIGHT_DERATE_TICKS (FULL_BRIGHT_DERATE_MS / EFFECT_TICK_MS)
+
 #define ENV_DELTA 4U
 #define BREATH_STEPS 256U
 #define BREATH_CYCLE (BREATH_STEPS * 2U)
@@ -40,6 +45,8 @@ static uint8_t env = 0U;
 static uint8_t breath_lut_cur = 0U;
 static uint8_t save_flash_remain = 0U;
 static uint8_t save_flash_phase = 0U;
+static uint16_t full_bright_derate_ticks = 0U;
+static uint8_t full_on_derated = 0U;
 
 static uint8_t param_level[10] = {0};
 static Config current_cfg;
@@ -109,6 +116,8 @@ void Apply_Config(const Config *cfg)
   breath_phase_accum = 0U;
   env = 0U;
   breath_lut_cur = 0U;
+  full_bright_derate_ticks = 0U;
+  full_on_derated = 0U;
 
   current_cfg.mode = mode;
   for (uint8_t i = MODE_MIN; i <= MODE_MAX; i++)
@@ -215,6 +224,29 @@ void Effect_Tick(void)
       save_flash_remain = 3U;
       save_flash_phase = 0U;
     }
+  }
+
+  /* INSERT: full-bright derate logic (mode 7 only, continuous >200 for 10s). */
+  if ((mode == 7U) && (param_level[7] > FULL_BRIGHT_DERATE_THRESHOLD))
+  {
+    if (full_on_derated == 0U)
+    {
+      if (full_bright_derate_ticks < FULL_BRIGHT_DERATE_TICKS)
+      {
+        full_bright_derate_ticks++;
+      }
+      if (full_bright_derate_ticks >= FULL_BRIGHT_DERATE_TICKS)
+      {
+        param_level[7] = FULL_BRIGHT_DERATE_LEVEL;
+        current_cfg.param_level[7] = param_level[7];
+        full_on_derated = 1U;
+      }
+    }
+  }
+  else
+  {
+    full_bright_derate_ticks = 0U;
+    full_on_derated = 0U;
   }
 
   {
