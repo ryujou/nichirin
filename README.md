@@ -152,13 +152,13 @@ cmake --build --preset Debug --target clean
 
 ## 上位机脚本（PC 端）
 
-PC 端入口位于 [Script/nichirin_pc.py](Script/nichirin_pc.py)。功能已拆分为多个模块，便于维护：
+PC 端入口位于 [PC_Host/Script/nichirin_pc.py](PC_Host/Script/nichirin_pc.py)。功能已拆分为多个模块，便于维护：
 
-- [Script/gui_app.py](Script/gui_app.py)：GUI 主界面与交互逻辑
-- [Script/audio_threads.py](Script/audio_threads.py)：麦克风采集、文件预分析、文件频谱线程
-- [Script/dsp.py](Script/dsp.py)：频谱分箱与自适应处理
-- [Script/serial_sender.py](Script/serial_sender.py)：串口发送线程
-- [Script/pc_common.py](Script/pc_common.py)：协议与常量
+- [PC_Host/Script/gui_app.py](PC_Host/Script/gui_app.py)：GUI 主界面与交互逻辑
+- [PC_Host/Script/audio_threads.py](PC_Host/Script/audio_threads.py)：麦克风采集、文件预分析、文件频谱线程
+- [PC_Host/Script/dsp.py](PC_Host/Script/dsp.py)：频谱分箱与自适应处理
+- [PC_Host/Script/serial_sender.py](PC_Host/Script/serial_sender.py)：串口发送线程
+- [PC_Host/Script/pc_common.py](PC_Host/Script/pc_common.py)：协议与常量
 
 整体功能：从麦克风或本地媒体文件提取 12 段频谱，通过 UART 实时发送到板端。支持音频/视频播放、拖拽文件、预分析锁定风格、全局 AGC，以及播放进度条。
 
@@ -180,7 +180,7 @@ pip install PyQt6 sounddevice pyserial numpy
 2. 运行脚本：
 
 ```sh
-python Script/nichirin_pc.py
+python PC_Host/Script/nichirin_pc.py
 ```
 
 3. 在界面中选择串口与波特率，设置发送频率（默认 400Hz）。
@@ -194,48 +194,58 @@ python Script/nichirin_pc.py
 - 仅需显示视频可保持静音，频谱由解码音频生成。
 - 发送协议为 16 字节帧：地址 + 功能码 + 12 段数据 + CRC16(Modbus)。
 
+### Web
+Web version is in `PC_Host/Web/`. Open `PC_Host/Web/index.html` in a browser.
+- Browser mic/file spectrum analysis
+- Web Serial UART sending
+
+
 ## 目录结构
 
 ```
 nichirin_V3/
-├── .git/                    # Git 元数据
-├── .vscode/                 # VS Code 配置/任务
-├── .settings/               # IDE/工具配置
-├── .clangd                  # clangd 配置
-├── .mxproject               # CubeMX 工程元信息
-├── CMakeLists.txt           # 主构建脚本
-├── CMakePresets.json        # 预设构建配置
-├── README.md                # 项目说明
-├── nichirin_V3.ioc          # CubeMX 工程文件
-├── STM32G030XX_FLASH.ld     # 链接脚本
-├── startup_stm32g030xx.s    # 启动文件
-├── cmake/                   # 工具链与 CubeMX CMake 集成
-│   └── stm32cubemx/          # CubeMX 生成的 CMake 片段
-├── Core/                    # 应用代码 (main/app/drivers/storage/utils)
-│   ├── Inc/                  # 头文件
-│   │   ├── drivers/          # 外设驱动头文件
-│   │   ├── storage/          # Flash 配置存储
-│   │   └── utils/            # 工具函数
-├── Script/                  # PC 上位机脚本
-│   ├── nichirin_pc.py        # 入口
-│   ├── gui_app.py            # GUI 主界面
-│   ├── audio_threads.py      # 音频采集/预分析/文件频谱线程
-│   ├── dsp.py                # DSP 与自适应处理
-│   ├── serial_sender.py      # 串口发送线程
-│   └── pc_common.py          # 协议与常量
-│   └── Src/                  # 源文件
-│       ├── drivers/          # 外设驱动实现
-│       ├── storage/          # Flash 配置存储实现
-│       └── utils/            # 工具函数实现
-├── Drivers/                 # CMSIS 与 HAL 驱动
-│   ├── CMSIS/                # ARM CMSIS
-│   └── STM32G0xx_HAL_Driver/ # STM32G0 HAL
-├── Script/                  # PC 上位机脚本
-│   └── nichirin_pc.py        # 频谱 UART 发送与播放器
-└── build/                   # 构建输出
-  ├── Debug/                # Debug 构建
-  └── Release/              # Release 构建
+??? .git/                    # Git metadata
+??? .vscode/                 # VS Code config
+??? .settings/               # IDE/tool config
+??? .clangd                  # clangd config
+??? .mxproject               # CubeMX project meta
+??? CMakeLists.txt           # Root build script
+??? CMakePresets.json        # Build presets
+??? README.md                # Project doc
+??? nichirin_V3.ioc          # CubeMX project file
+??? STM32G030XX_FLASH.ld     # Linker script
+??? startup_stm32g030xx.s    # Startup file
+??? cmake/                   # Toolchain + CubeMX CMake
+?   ??? stm32cubemx/          # Generated CMake fragments
+??? Core/                    # Application code
+?   ??? Inc/                  # Headers
+?   ?   ??? drivers/
+?   ?   ??? storage/
+?   ??? Src/                  # Sources
+?       ??? drivers/
+?       ??? storage/
+?       ??? utils/
+??? Drivers/                 # CMSIS + HAL
+?   ??? CMSIS/
+?   ??? STM32G0xx_HAL_Driver/
+??? PC_Host/                 # Host tools
+?   ??? Script/               # PC script version
+?   ?   ??? nichirin_pc.py
+?   ?   ??? gui_app.py
+?   ?   ??? audio_threads.py
+?   ?   ??? dsp.py
+?   ?   ??? serial_sender.py
+?   ?   ??? pc_common.py
+?   ??? Web/                  # Web version
+?       ??? index.html
+?       ??? style.css
+?       ??? app.js
+?       ??? README.md
+??? build/                   # Build output
+    ??? Debug/
+    ??? Release/
 ```
+
 
 ## 重新生成 CubeMX 代码
 
