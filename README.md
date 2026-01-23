@@ -20,6 +20,7 @@
 - [功能列表](#功能列表)
 - [硬件与接口说明](#硬件与接口说明)
 - [编码器使用说明](#编码器使用说明)
+- [下位机状态机](#下位机状态机)
 - [WS2812 刷新机制](#ws2812-刷新机制)
 - [模式与参数](#模式与参数)
 - [掉电记忆说明](#掉电记忆说明)
@@ -195,55 +196,70 @@ python PC_Host/Script/nichirin_pc.py
 - 发送协议为 16 字节帧：地址 + 功能码 + 12 段数据 + CRC16(Modbus)。
 
 ### Web
-Web version is in `PC_Host/Web/`. Open `PC_Host/Web/index.html` in a browser.
-- Browser mic/file spectrum analysis
-- Web Serial UART sending
+Web 版本位于 `PC_Host/Web/`，用浏览器打开 `PC_Host/Web/index.html`。
+- 浏览器麦克风/文件频谱分析
+- Web Serial 串口发送
+- 静态页面：https://ryujou.github.io/nichirin/
+
+## 下位机状态机
+
+```mermaid
+flowchart TD
+  A[上电/复位] --> B[Normal]
+  B -->|短按| B1[切换模式 1→2→3→4→6]
+  B -->|长按| C[设置]
+  C -->|短按| C1[切换页面：
+  Color ⇄ ModeParam]
+  C -->|旋转| C3[调整当前参数]
+  C -->|长按| B
+```
 
 
 ## 目录结构
 
 ```
 nichirin_V3/
-??? .git/                    # Git metadata
-??? .vscode/                 # VS Code config
-??? .settings/               # IDE/tool config
-??? .clangd                  # clangd config
-??? .mxproject               # CubeMX project meta
-??? CMakeLists.txt           # Root build script
-??? CMakePresets.json        # Build presets
-??? README.md                # Project doc
-??? nichirin_V3.ioc          # CubeMX project file
-??? STM32G030XX_FLASH.ld     # Linker script
-??? startup_stm32g030xx.s    # Startup file
-??? cmake/                   # Toolchain + CubeMX CMake
-?   ??? stm32cubemx/          # Generated CMake fragments
-??? Core/                    # Application code
-?   ??? Inc/                  # Headers
-?   ?   ??? drivers/
-?   ?   ??? storage/
-?   ??? Src/                  # Sources
-?       ??? drivers/
-?       ??? storage/
-?       ??? utils/
-??? Drivers/                 # CMSIS + HAL
-?   ??? CMSIS/
-?   ??? STM32G0xx_HAL_Driver/
-??? PC_Host/                 # Host tools
-?   ??? Script/               # PC script version
-?   ?   ??? nichirin_pc.py
-?   ?   ??? gui_app.py
-?   ?   ??? audio_threads.py
-?   ?   ??? dsp.py
-?   ?   ??? serial_sender.py
-?   ?   ??? pc_common.py
-?   ??? Web/                  # Web version
-?       ??? index.html
-?       ??? style.css
-?       ??? app.js
-?       ??? README.md
-??? build/                   # Build output
-    ??? Debug/
-    ??? Release/
+├── .git/                    # Git metadata
+├── .vscode/                 # VS Code config
+├── .settings/               # IDE/tool config
+├── .clangd                  # clangd config
+├── .mxproject               # CubeMX project meta
+├── CMakeLists.txt           # Root build script
+├── CMakePresets.json        # Build presets
+├── README.md                # Project doc
+├── nichirin_V3.ioc          # CubeMX project file
+├── STM32G030XX_FLASH.ld     # Linker script
+├── startup_stm32g030xx.s    # Startup file
+├── cmake/                   # Toolchain + CubeMX CMake
+│   └── stm32cubemx/          # Generated CMake fragments
+├── Core/                    # Application code
+│   ├── Inc/                  # Headers
+│   │   ├── drivers/
+│   │   └── storage/
+│   └── Src/                  # Sources
+│       ├── drivers/
+│       ├── storage/
+│       └── utils/
+├── Drivers/                 # CMSIS + HAL
+│   ├── CMSIS/
+│   └── STM32G0xx_HAL_Driver/
+├── PC_Host/                 # Host tools
+│   ├── Script/               # PC script version
+│   │   ├── nichirin_pc.py
+│   │   ├── gui_app.py
+│   │   ├── audio_threads.py
+│   │   ├── dsp.py
+│   │   ├── serial_sender.py
+│   │   └── pc_common.py
+│   └── Web/                  # Web version
+│       ├── index.html
+│       ├── style.css
+│       ├── app.js
+│       ├── card.json
+│       └── README.md
+└── build/                   # Build output
+  ├── Debug/
+  └── Release/
 ```
 
 

@@ -992,6 +992,9 @@ ui.media.addEventListener("pause", () => {
 ui.media.addEventListener("ended", () => {
   ui.playPauseBtn.textContent = "播放";
   ui.progress.value = 0;
+  if (serialState.sending) {
+    stopAll();
+  }
 });
 
 ui.media.addEventListener("dragover", (e) => {
