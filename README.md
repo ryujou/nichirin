@@ -50,6 +50,7 @@ Nichirin V3 是基于 STM32G030 的 WS2812 灯效控制工程，12 组灯珠（�
 - **WS2812**: TIM1 + DMA 驱动
 - **编码器**: A/B + 按键（上拉输入）
 - **UART**: 频谱数据输入
+- **电源与充电**: 主板通过 XH2.54 公头接供电线，预留一体化充电口（含保护电路）实现即插即用；推荐使用内含 XH2.54 母座的 3.7V 18650/锂聚合物电池组，参考淘宝链接 [https://e.tb.cn/h.7oMTV0WlAiWJFYN?tk=pgqNUgS4EwD](https://e.tb.cn/h.7oMTV0WlAiWJFYN?tk=pgqNUgS4EwD) 进行采购，便于搭配同型号插头并支持充电状态指示。
 
 > 引脚定义以 CubeMX 生成的 `Core/Inc/main.h` 为准。
 
