@@ -30,12 +30,16 @@ body {
   background-attachment: fixed;
   background-size: 300px;
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
 .app {
-  max-width: 1200px;
+  max-width: 1500px;
+  width: min(1500px, 96vw);
   margin: 0 auto;
   padding: 32px 20px 60px;
   position: relative;
@@ -96,7 +100,7 @@ body {
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(2, minmax(320px, 1fr));
   gap: 20px;
 }
 
@@ -134,8 +138,72 @@ body {
   margin-bottom: 12px;
 }
 
+/* 麦克风下拉框 + 刷新按钮：底对齐，避免 select 与 button 高度差导致的视觉错位 */
+.mic-row {
+  flex-wrap: nowrap;
+  align-items: flex-end;
+}
+
+.mic-row .field {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.mic-row #refreshMicsBtn {
+  align-self: flex-end;
+  white-space: nowrap;
+}
+
+.serial-top-row {
+  flex-wrap: nowrap;
+}
+
+.serial-top-row .field {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.serial-top-row button {
+  align-self: flex-end;
+  white-space: nowrap;
+}
+
+.param-row {
+  flex-wrap: nowrap;
+  align-items: flex-end;
+}
+
+.color-row {
+  flex-wrap: nowrap;
+  align-items: flex-end;
+}
+
+.param-row .field {
+  flex: 1 1 0;
+}
+
+.color-row .field {
+  flex: 1 1 0;
+}
+
+.color-row .primary {
+  align-self: flex-end;
+  margin-left: auto;
+}
+
 .serial-row {
   flex-wrap: nowrap;
+  align-items: flex-end;
+}
+
+@media (max-width: 860px) {
+  /* 小屏下强行 nowrap 会导致溢出/错位 */
+  .serial-row,
+  .param-row,
+  .color-row,
+  .mic-row {
+    flex-wrap: wrap;
+  }
 }
 
 .serial-row .field {
@@ -163,6 +231,26 @@ body {
   max-width: 100%;
   width: 100%;
   box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.value-inline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.value-hint {
+  min-width: 64px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  padding: 8px 12px;
+}
+
+.value-inline input {
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .field input:focus,
@@ -258,6 +346,96 @@ button.primary:not(:disabled):hover {
   font-size: 12px;
 }
 
+.color-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.preset-palette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.preset-swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.18);
+  box-shadow: none;
+  background: var(--_preset_bg);
+}
+
+.preset-swatch:hover {
+  transform: translateY(-1px);
+  background: var(--_preset_bg);
+}
+
+.preset-swatch:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px var(--focus);
+}
+
+.color-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.color-swatch {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: none;
+  position: relative;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.2s ease;
+  background-color: #ff3b30;
+  box-shadow:
+    0 10px 18px rgba(15, 23, 42, 0.14),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.7);
+}
+
+.color-actual {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #8a8f98;
+}
+
+.color-swatch:hover {
+  transform: translateY(-1px) scale(1.03);
+}
+
+.color-swatch:active {
+  transform: translateY(0) scale(0.99);
+}
+
+.color-swatch::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.1));
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.12);
+  pointer-events: none;
+}
+
+.color-swatch::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.05) 50%, rgba(0, 0, 0, 0.12) 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+  pointer-events: none;
+}
+
 #logView {
   width: 100%;
   min-height: 260px;
@@ -323,5 +501,217 @@ button.primary:not(:disabled):hover {
 
   .status-card {
     width: 100%;
+  }
+}
+
+@media (max-width: 900px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ===== 顶部导航 & “角色配色”页 ===== */
+.top-nav{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  justify-content:center;
+  margin: 10px 0 18px;
+}
+
+.page.hidden{ display:none; }
+.page{ width: 100%; }
+
+#page-characters .grid{
+  grid-template-columns: minmax(0, 1fr);
+  justify-content: center;
+}
+
+#page-characters .panel{
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.char-head{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:16px;
+  margin-bottom: 14px;
+}
+
+.char-toolbar{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  flex-wrap:wrap;
+  margin: 10px 0 16px;
+}
+
+.char-toolbar .input{
+  flex: 1 1 260px;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(20,20,20,.12);
+  background: rgba(255,255,255,.85);
+  outline: none;
+}
+
+.char-toolbar .select{
+  flex: 0 0 180px;
+  height: 40px;
+  border-radius: 14px;
+}
+
+.char-hint{
+  color: rgba(10,10,10,.55);
+  font-size: 14px;
+  padding-left: 4px;
+}
+
+.char-grid{
+  display:grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  justify-items: center;
+  justify-content: center;
+  width: fit-content;
+  margin: 0 auto;
+}
+
+.char-card{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  width: 100%;
+  max-width: 260px;
+  padding: 10px 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(20,20,20,.10);
+  background: rgba(255,255,255,.78);
+  box-shadow: 0 6px 18px rgba(0,0,0,.05);
+  transition: transform .12s ease, box-shadow .12s ease;
+  text-align:left;
+  margin: 0 auto;
+}
+
+.char-card:hover{
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(0,0,0,.08);
+}
+
+.char-card:active{ transform: translateY(0px) scale(.99); }
+
+.char-avatar{
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  flex: 0 0 56px;
+  aspect-ratio: 1 / 1;
+  border: 2px solid rgba(255,255,255,.9);
+  box-shadow: 0 10px 20px rgba(0,0,0,.10);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  overflow:hidden;
+  background: #ffffff;
+}
+
+.char-avatar img{
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.char-initial{
+  font-weight: 900;
+  font-size: 18px;
+  color: rgba(255,255,255,.92);
+  text-shadow: 0 2px 8px rgba(0,0,0,.35);
+}
+
+.char-meta{
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.char-name{
+  font-weight: 800;
+  font-size: 15px;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--char-color, var(--text));
+  text-shadow: 0 1px 0 rgba(255,255,255,.7), 0 2px 8px rgba(0,0,0,.18);
+}
+.char-band{
+  margin-top: 4px;
+  font-size: 12px;
+  color: rgba(10,10,10,.55);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.char-chip{
+  width: 16px;
+  height: 16px;
+  border-radius: 6px;
+  border: 1px solid rgba(0,0,0,.08);
+  flex: 0 0 auto;
+}
+
+.char-card.is-gray{
+  opacity: .68;
+}
+
+@media (max-width: 1300px){
+  .char-grid{ grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 1100px){
+  .char-grid{ grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 860px){
+  .char-grid{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 620px){
+  .char-grid{ grid-template-columns: 1fr; }
+  .char-toolbar .select{ flex: 1 1 160px; }
+}
+
+
+/* ===== Mobile fixes: Serial status placement + Color preset wrapping ===== */
+
+/* 串口：把连接状态放到“已授权串口”这一行右侧，并右对齐 */
+.serial-top-row {
+  align-items: flex-end;
+}
+.serial-top-row .serial-top-meta {
+  margin-left: auto;
+  display: flex;
+  align-items: flex-end;
+}
+.serial-top-row #serialStatus {
+  align-self: flex-end;
+}
+
+/* 手机端：模式与颜色行改为“字段各占整行”，避免颜色预设被挤成一列 */
+@media (max-width: 560px) {
+  .color-row > .field {
+    flex: 1 1 100%;
+  }
+
+  .color-row > button {
+    flex: 1 1 calc(50% - 8px);
+  }
+
+  .preset-palette {
+    max-width: 100%;
   }
 }

@@ -1,0 +1,258 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>小日轮 V3 Web</title>
+  <link rel="stylesheet" href="style.with_characters.css" />
+</head>
+<body>
+  <img id="charLeft" class="char-img char-left" alt="Left Character" />
+  <img id="charRight" class="char-img char-right" alt="Right Character" />
+  <div class="app">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">小日轮 V3 · Web 版上位机</p>
+        <h1>小日轮 · 浏览器控制台</h1>
+        <p class="sub">支持麦克风/文件频谱分析与 Web Serial 串口发送。</p>
+      </div>
+      <div class="status-card">
+        <div class="status-line">
+          <span>日志</span>
+          <button id="logToggle" class="pill">显示</button>
+        </div>
+        <div class="status-line">
+          <span>状态</span>
+          <strong id="statusText">未开始</strong>
+        </div>
+        <div class="status-line">
+          <span>风格</span>
+          <strong id="genreText">+0.00</strong>
+        </div>
+      </div>
+    </header>
+
+<div class="top-nav">
+  <button id="navMain" class="pill active">控制台</button>
+  <button id="navCharacters" class="pill">角色配色</button>
+</div>
+
+    <div id="page-main" class="page">
+    <section class="grid">
+      <div class="panel log-panel">
+        <h2>文件播放</h2>
+        <div class="row">
+          <button id="openBtn" class="primary">打开音频/视频</button>
+          <button id="playPauseBtn" disabled>播放</button>
+          <button id="stopMediaBtn" disabled>停止</button>
+        </div>
+        <div class="progress-row">
+          <input id="progress" type="range" min="0" max="0" value="0" />
+          <span id="progressTime">00:00 / 00:00</span>
+        </div>
+        <div class="media-wrap">
+          <video id="media" playsinline></video>
+          <div id="dropHint">拖拽音频/视频文件到此处</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>串口发送</h2>
+        <div class="row serial-top-row">
+          <label class="field">
+            <span>已授权串口</span>
+            <select id="portSelect"></select>
+          </label>
+        </div>
+        <div class="row serial-row">
+          <button id="refreshPortsBtn">刷新</button>
+          <button id="connectBtn" class="primary">连接</button>
+          <button id="disconnectBtn">断开</button>
+          <button id="serialToggle" class="pill">串口设置</button>
+        </div>
+        <div class="row" id="serialSettingsRow">
+          <label class="field">
+            <span>波特率</span>
+            <select id="baudSelect">
+              <option>115200</option>
+              <option>230400</option>
+              <option>460800</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Hz</span>
+            <input id="hzInput" type="number" min="1" max="1000" step="1" value="400" />
+          </label>
+          <label class="toggle">
+            <input id="printFrames" type="checkbox" />
+            <span>打印发送</span>
+          </label>
+          <label class="field">
+            <span>每 N 帧</span>
+            <input id="printEvery" type="number" min="1" max="1000000" value="200" />
+          </label>
+        </div>
+        <div class="row">
+          <div class="pill" id="serialStatus">未连接</div>
+          <div class="pill" id="serialStats">TX 0 / 0.0s / err 0</div>
+        </div>
+      </div>
+
+      <div class="panel" id="configPanel">
+        <h2>模式与颜色</h2>
+        <div class="row" id="configModeRow">
+          <label class="field">
+            <span>模式</span>
+            <select id="modeSelect">
+              <option value="1">模式 1 · 流水</option>
+              <option value="2">模式 2 · 爆闪</option>
+              <option value="3">模式 3 · 常亮</option>
+              <option value="4">模式 4 · 呼吸</option>
+              <option value="6">模式 6 · 频谱</option>
+            </select>
+          </label>
+        </div>
+        <div id="dspPanel">
+          <h3>频谱输入</h3>
+          <div class="row">
+            <label class="field">
+              <span>输入源</span>
+              <select id="sourceSelect">
+                <option value="mic">麦克风 (Mic)</option>
+                <option value="file">文件 (先预分析后播放)</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>麦克风</span>
+              <select id="micSelect"></select>
+            </label>
+            <button id="refreshMicsBtn">刷新麦克风</button>
+          </div>
+          <div class="row" id="srRow">
+            <label class="field">
+              <span>采样率</span>
+              <select id="srSelect">
+                <option value="48000">48000</option>
+                <option value="44100">44100</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>块</span>
+              <select id="blockSelect">
+                <option value="256">256</option>
+                <option value="512" selected>512</option>
+                <option value="1024">1024</option>
+              </select>
+            </label>
+          </div>
+          <div class="row" id="floorRow">
+            <label class="field">
+              <span>Floor (dB)</span>
+              <input id="floorInput" type="range" min="0" max="120" step="1" value="30" />
+            </label>
+            <div class="pill" id="floorValue">30 dB</div>
+          </div>
+          <div class="row">
+            <button id="startBtn" class="primary">开始（频谱 + 发送）</button>
+            <button id="stopBtn" disabled>停止发送</button>
+          </div>
+        </div>
+        <div class="row param-row" id="configParamRow">
+          <label class="field">
+            <span>参数</span>
+            <input id="paramSlider" type="range" min="0" max="255" value="128" />
+          </label>
+          <label class="field">
+            <span>值</span>
+            <div class="value-inline">
+              <input id="paramValue" type="number" min="0" max="255" value="128" />
+              <div class="pill value-hint" id="paramHint">128</div>
+            </div>
+          </label>
+        </div>
+        <div class="row color-row" id="configColorRow">
+          <label class="field">
+            <span>颜色</span>
+            <div class="color-control">
+              <button id="colorSwatch" class="color-swatch" type="button" title="选择颜色"></button>
+              <input id="colorPicker" class="color-input" type="color" value="#ff3b30" />
+            </div>
+          </label>
+          <label class="field">
+            <span>色号</span>
+            <input id="colorHex" type="text" value="#ff3b30" />
+          </label>
+          <button id="readConfigBtn">读取配置</button>
+          <button id="sendConfigBtn" class="primary">发送配置</button>
+        </div>
+      </div>
+
+      <div class="panel log-panel" id="logPanel">
+        <h2>日志</h2>
+        <textarea id="logView" readonly></textarea>
+      </div>
+    </section>
+  </div>
+
+  <input id="filePicker" type="file" accept="audio/*,video/*" hidden />
+    </div>
+
+
+<div id="page-characters" class="page hidden">
+  <section class="grid">
+    <div class="panel">
+      <div class="char-head">
+        <div>
+          <h2>角色配色</h2>
+          <p class="sub">点击角色头像，灯光切换为该角色代表色（数据来自萌娘百科）。</p>
+        </div>
+      </div>
+
+      <div class="char-toolbar">
+        <input id="charSearch" class="input" type="search" placeholder="搜索角色（中文名 / 乐队）" />
+        <select id="bandFilter" class="select">
+          <option value="">全部乐队</option>
+        </select>
+        <div class="char-hint" id="charHint"></div>
+      </div>
+
+      <div id="charGrid" class="char-grid"></div>
+    </div>
+  </section>
+</div>
+
+  <script src="characters.data.js?v=20260125"></script>
+  <script src="app.with_characters.js?v=20260125"></script>
+  <script>
+    async function loadRandomChars() {
+      const leftImg = document.getElementById("charLeft");
+      const rightImg = document.getElementById("charRight");
+      try {
+        const res = await fetch("card.json", { cache: "no-store" });
+        const data = await res.json();
+        const list = Array.isArray(data.cards) ? data.cards : [];
+        if (list.length < 2) return;
+        const shuffled = list.slice().sort(() => 0.5 - Math.random());
+        const leftSrc = shuffled[0];
+        const rightSrc = shuffled[1] || shuffled[0];
+
+        const img1 = new Image();
+        img1.onload = () => {
+          leftImg.src = leftSrc;
+          leftImg.classList.add("char-visible");
+        };
+        img1.src = leftSrc;
+
+        const img2 = new Image();
+        img2.onload = () => {
+          rightImg.src = rightSrc;
+          rightImg.classList.add("char-visible");
+        };
+        img2.src = rightSrc;
+      } catch (_) {}
+    }
+
+    loadRandomChars();
+  </script>
+</body>
+</html>

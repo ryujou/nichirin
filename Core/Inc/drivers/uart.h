@@ -2,7 +2,7 @@
 /**
   ******************************************************************************
   * @file           : uart.h
-  * @brief          : UART spectrum RX (USART1) interface
+  * @brief          : UART Modbus RX (USART1/USART2) interface
   ******************************************************************************
   */
 /* USER CODE END Header */

@@ -10,25 +10,124 @@ GUI 主界面。
 from __future__ import annotations
 
 import os
+import math
+import time
 from typing import Optional
 
 import numpy as np
 import sounddevice as sd
+import serial
 from serial.tools import list_ports
 
-from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtCore import Qt, QUrl, pyqtSignal, QSize, QPointF, QTimer
+from PyQt6.QtGui import QColor, QPainter, QPen, QImage, QPixmap
 from PyQt6.QtWidgets import (
     QWidget, QLabel, QPushButton, QComboBox,
-    QDoubleSpinBox, QSpinBox, QTextEdit, QHBoxLayout, QVBoxLayout, QGroupBox,
+    QDoubleSpinBox, QSpinBox, QTextEdit, QHBoxLayout, QVBoxLayout, QGroupBox, QGridLayout,
     QMessageBox, QFileDialog, QCheckBox, QSlider
 )
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QVideoWidget
 
-from pc_common import AUDIO_EXT, VIDEO_EXT
+from pc_common import (
+    AUDIO_EXT, VIDEO_EXT,
+    REG_MODE, REG_HUE, REG_SAT, REG_VAL, REG_PARAM,
+    build_read_holding, build_write_single, build_write_multi, parse_read_holding_response, verify_crc,
+)
 from dsp import DspConfig
 from audio_threads import MicAudioThread, FilePreAnalyzeThread, FileAudioThread
 from serial_sender import SenderConfig, SenderThread
+
+
+class ColorWheel(QWidget):
+    """HSV color wheel (Hue angle + Saturation radius)."""
+
+    colorChanged = pyqtSignal(int, int)
+
+    def __init__(self, diameter: int = 180, parent=None):
+        super().__init__(parent)
+        self._diameter = max(80, int(diameter))
+        self._hue = 0
+        self._sat = 0
+        self._pix = self._build_pixmap(self._diameter)
+        self.setMinimumSize(self._diameter, self._diameter)
+
+    def sizeHint(self) -> QSize:
+        return QSize(self._diameter, self._diameter)
+
+    def set_hsv(self, hue: int, sat: int):
+        hue = int(hue) % 360
+        sat = max(0, min(255, int(sat)))
+        if hue == self._hue and sat == self._sat:
+            return
+        self._hue = hue
+        self._sat = sat
+        self.update()
+
+    def _build_pixmap(self, diameter: int) -> QPixmap:
+        radius = diameter // 2
+        img = QImage(diameter, diameter, QImage.Format.Format_ARGB32)
+        img.fill(Qt.GlobalColor.transparent)
+
+        cx = radius
+        cy = radius
+        for y in range(diameter):
+            dy = y - cy
+            for x in range(diameter):
+                dx = x - cx
+                dist = math.hypot(dx, dy)
+                if dist > radius:
+                    continue
+                sat = int((dist / radius) * 255)
+                hue = int((math.degrees(math.atan2(-dy, dx)) + 360.0) % 360.0)
+                c = QColor.fromHsv(hue, sat, 255)
+                img.setPixelColor(x, y, c)
+        return QPixmap.fromImage(img)
+
+    def _pos_to_hs(self, pos: QPointF):
+        radius = self._diameter / 2.0
+        cx = radius
+        cy = radius
+        dx = pos.x() - cx
+        dy = pos.y() - cy
+        dist = math.hypot(dx, dy)
+        if dist > radius:
+            return None
+        sat = int(max(0.0, min(1.0, dist / radius)) * 255)
+        hue = int((math.degrees(math.atan2(-dy, dx)) + 360.0) % 360.0)
+        return hue, sat
+
+    def mousePressEvent(self, event):
+        hs = self._pos_to_hs(event.position())
+        if hs is None:
+            return
+        self._hue, self._sat = hs
+        self.update()
+        self.colorChanged.emit(self._hue, self._sat)
+
+    def mouseMoveEvent(self, event):
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
+            return
+        hs = self._pos_to_hs(event.position())
+        if hs is None:
+            return
+        self._hue, self._sat = hs
+        self.update()
+        self.colorChanged.emit(self._hue, self._sat)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.drawPixmap(0, 0, self._pix)
+
+        radius = self._diameter / 2.0
+        angle = math.radians(self._hue)
+        r = (self._sat / 255.0) * radius
+        cx = radius + r * math.cos(angle)
+        cy = radius - r * math.sin(angle)
+        pen = QPen(Qt.GlobalColor.white, 2)
+        painter.setPen(pen)
+        painter.drawEllipse(QPointF(cx, cy), 5.0, 5.0)
 
 
 class MainWindow(QWidget):
@@ -86,6 +185,48 @@ class MainWindow(QWidget):
         self.print_every.setRange(1, 1000000)
         self.print_every.setValue(200)
         self.print_every.setSuffix(" 帧/次")
+
+        # Modbus 配置 UI
+        self.modbus_mode = QComboBox()
+        self.modbus_mode.addItem("1 流动 (Flow)", 1)
+        self.modbus_mode.addItem("2 频闪 (Strobe)", 2)
+        self.modbus_mode.addItem("3 常亮 (Steady)", 3)
+        self.modbus_mode.addItem("4 呼吸 (Breath)", 4)
+        self.modbus_mode.addItem("5 频谱 (Spectrum)", 5)
+        self.modbus_hue = QSpinBox()
+        self.modbus_hue.setRange(0, 359)
+        self.modbus_hue.setToolTip("HUE 色相角度 (0..359)")
+        self.modbus_sat = QSpinBox()
+        self.modbus_sat.setRange(0, 255)
+        self.modbus_sat.setToolTip("SAT 饱和度 (0..255)")
+        self.modbus_val = QSpinBox()
+        self.modbus_val.setRange(0, 255)
+        self.modbus_val.setToolTip("VAL 明度/亮度 (0..255)")
+        self.modbus_val_slider = QSlider(Qt.Orientation.Horizontal)
+        self.modbus_val_slider.setRange(0, 255)
+        self.modbus_val_slider.setValue(0)
+        self.modbus_val_slider.setToolTip("VAL 明度/亮度 (0..255)")
+        self.modbus_param = QSpinBox()
+        self.modbus_param.setRange(0, 255)
+        self.modbus_param.setToolTip("PARAM 当前模式参数 (模式1~4有效, 模式5为 spectrum_gain)")
+
+        self.color_wheel = ColorWheel(180)
+        self.color_preview = QLabel()
+        self.color_preview.setFixedSize(36, 36)
+        self.color_preview.setStyleSheet("background: #000000; border: 1px solid #444;")
+
+        self.modbus_read_btn = QPushButton("读取配置")
+        self.modbus_write_btn = QPushButton("写入配置")
+        self.modbus_param_btn = QPushButton("写入参数")
+        self.modbus_status = QLabel("Modbus: idle")
+        self.param_hint = QLabel("PARAM: -")
+        self.param_hint.setWordWrap(True)
+        self._modbus_updating = False
+        self._color_sync_guard = False
+        self._val_sync_guard = False
+        self._color_send_timer = QTimer(self)
+        self._color_send_timer.setSingleShot(True)
+        self._color_send_timer.timeout.connect(self._send_color_now)
 
         # 输入源选择
         self.source_box = QComboBox()
@@ -164,6 +305,32 @@ class MainWindow(QWidget):
         srow.addWidget(self.print_every)
         serial_box.setLayout(srow)
 
+        modbus_box = QGroupBox("Modbus 配置")
+        mgrid = QGridLayout()
+        mgrid.addWidget(QLabel("MODE"), 0, 0)
+        mgrid.addWidget(self.modbus_mode, 0, 1)
+        mgrid.addWidget(QLabel("HUE"), 0, 2)
+        mgrid.addWidget(self.modbus_hue, 0, 3)
+        mgrid.addWidget(QLabel("SAT"), 0, 4)
+        mgrid.addWidget(self.modbus_sat, 0, 5)
+        mgrid.addWidget(QLabel("VAL"), 0, 6)
+        mgrid.addWidget(self.modbus_val, 0, 7)
+        mgrid.addWidget(QLabel("PARAM"), 0, 8)
+        mgrid.addWidget(self.modbus_param, 0, 9)
+
+        mgrid.addWidget(self.modbus_read_btn, 1, 0, 1, 2)
+        mgrid.addWidget(self.modbus_write_btn, 1, 2, 1, 2)
+        mgrid.addWidget(self.modbus_param_btn, 1, 4, 1, 2)
+        mgrid.addWidget(self.modbus_status, 1, 6, 1, 4)
+
+        mgrid.addWidget(self.color_wheel, 2, 0, 3, 4)
+        mgrid.addWidget(QLabel("当前颜色"), 2, 4)
+        mgrid.addWidget(self.color_preview, 2, 5)
+        mgrid.addWidget(QLabel("VAL 滑条"), 3, 4)
+        mgrid.addWidget(self.modbus_val_slider, 3, 5, 1, 5)
+        mgrid.addWidget(self.param_hint, 4, 4, 1, 6)
+        modbus_box.setLayout(mgrid)
+
         audio_box = QGroupBox("输入源 / 参数")
         arow1 = QHBoxLayout()
         arow1.addWidget(QLabel("输入源："))
@@ -210,6 +377,7 @@ class MainWindow(QWidget):
         root.addWidget(media_box)
         root.addWidget(self.video, 4)
         root.addWidget(serial_box)
+        root.addWidget(modbus_box)
         root.addWidget(audio_box)
         root.addWidget(run_box)
         root.addWidget(stat_box)
@@ -224,6 +392,17 @@ class MainWindow(QWidget):
         self.open_btn.clicked.connect(self.open_file)
         self.play_pause_btn.clicked.connect(self.toggle_play_pause)
         self.stop_media_btn.clicked.connect(self.stop_media)
+
+        self.modbus_read_btn.clicked.connect(self.modbus_read_config)
+        self.modbus_write_btn.clicked.connect(self.modbus_write_config)
+        self.modbus_param_btn.clicked.connect(self.modbus_write_param)
+
+        self.modbus_mode.currentIndexChanged.connect(self._update_param_hint)
+        self.modbus_hue.valueChanged.connect(self._on_hsv_spin_changed)
+        self.modbus_sat.valueChanged.connect(self._on_hsv_spin_changed)
+        self.modbus_val.valueChanged.connect(self._on_val_spin_changed)
+        self.modbus_val_slider.valueChanged.connect(self._on_val_slider_changed)
+        self.color_wheel.colorChanged.connect(self._on_wheel_changed)
 
         self.start_btn.clicked.connect(self.start_all)
         self.stop_btn.clicked.connect(self.stop_all)
@@ -240,6 +419,11 @@ class MainWindow(QWidget):
         self.refresh_ports()
         self.refresh_mic_devices()
         self.on_source_changed()
+        self._modbus_updating = True
+        self._update_param_hint()
+        self._on_hsv_spin_changed()
+        self._on_val_spin_changed()
+        self._modbus_updating = False
 
     # ---- drag & drop ----
     def dragEnterEvent(self, event):
@@ -368,6 +552,242 @@ class MainWindow(QWidget):
             print_frames=bool(self.print_box.isChecked()),
             print_every_n=int(self.print_every.value()),
         )
+
+    def _set_mode_combo(self, mode: int):
+        for i in range(self.modbus_mode.count()):
+            if int(self.modbus_mode.itemData(i)) == int(mode):
+                self.modbus_mode.setCurrentIndex(i)
+                return
+
+    def _update_param_hint(self):
+        mode = int(self.modbus_mode.currentData())
+        if mode == 1:
+            text = "PARAM: flow_speed (模式1, 0..255)"
+        elif mode == 2:
+            text = "PARAM: strobe_period (模式2, 0..255)"
+        elif mode == 3:
+            text = "PARAM: steady_bright (模式3, 0..255)"
+        elif mode == 4:
+            text = "PARAM: breath_speed (模式4, 0..255)"
+        elif mode == 5:
+            text = "PARAM: spectrum_gain (模式5, 0..255)"
+        else:
+            text = "PARAM: -"
+        self.param_hint.setText(text)
+        self.modbus_param.setToolTip(text)
+        if mode == 3:
+            self._sync_param_to_val()
+
+    def _update_color_preview(self):
+        c = QColor.fromHsv(
+            int(self.modbus_hue.value()),
+            int(self.modbus_sat.value()),
+            int(self.modbus_val.value()),
+        )
+        self.color_preview.setStyleSheet(
+            f"background: {c.name()}; border: 1px solid #444;"
+        )
+
+    def _on_hsv_spin_changed(self):
+        if self._color_sync_guard:
+            return
+        self._color_sync_guard = True
+        self.color_wheel.set_hsv(
+            int(self.modbus_hue.value()),
+            int(self.modbus_sat.value()),
+        )
+        self._update_color_preview()
+        self._color_sync_guard = False
+        self._queue_color_send()
+
+    def _on_val_spin_changed(self):
+        if self._val_sync_guard:
+            return
+        self._val_sync_guard = True
+        self.modbus_val_slider.setValue(int(self.modbus_val.value()))
+        self._update_color_preview()
+        self._val_sync_guard = False
+        self._sync_param_to_val()
+        self._queue_color_send()
+
+    def _on_val_slider_changed(self, value: int):
+        if self._val_sync_guard:
+            return
+        self._val_sync_guard = True
+        self.modbus_val.setValue(int(value))
+        self._update_color_preview()
+        self._val_sync_guard = False
+        self._sync_param_to_val()
+        self._queue_color_send()
+
+    def _on_wheel_changed(self, hue: int, sat: int):
+        if self._color_sync_guard:
+            return
+        self._color_sync_guard = True
+        self.modbus_hue.setValue(int(hue))
+        self.modbus_sat.setValue(int(sat))
+        self._update_color_preview()
+        self._color_sync_guard = False
+        self._queue_color_send()
+
+    def _queue_color_send(self):
+        if self._modbus_updating:
+            return
+        if self.sender_thread is not None:
+            return
+        if not self.port_box.currentData():
+            return
+        if self._color_send_timer.isActive():
+            self._color_send_timer.stop()
+        self._color_send_timer.start(80)
+
+    def _sync_param_to_val(self):
+        if int(self.modbus_mode.currentData()) != 3:
+            return
+        if self._modbus_updating:
+            return
+        self.modbus_param.setValue(int(self.modbus_val.value()))
+
+    def _send_color_now(self):
+        try:
+            port = self._modbus_get_port()
+            baud = int(self.baud_box.currentText())
+            hue = int(self.modbus_hue.value())
+            sat = int(self.modbus_sat.value())
+            val = int(self.modbus_val.value())
+            if int(self.modbus_mode.currentData()) == 3:
+                self._sync_param_to_val()
+                values = [hue, sat, val, int(self.modbus_param.value())]
+                frame = build_write_multi(REG_HUE, values)
+            else:
+                values = [hue, sat, val]
+                frame = build_write_multi(REG_HUE, values)
+            with serial.Serial(port, baud, timeout=0.02, write_timeout=0.2) as ser:
+                ser.reset_input_buffer()
+                ser.write(frame)
+                self._modbus_read_write_resp(ser, 0.3)
+            self._modbus_set_status("Modbus: 颜色已写入 (0x10)")
+        except Exception as e:
+            self._modbus_set_status(f"Modbus: 颜色写入失败：{e}")
+
+    # ---- modbus helpers ----
+    def _modbus_set_status(self, s: str):
+        self.modbus_status.setText(s)
+        self.log(s)
+
+    def _modbus_guard(self):
+        if self.sender_thread is not None:
+            raise RuntimeError("请先停止频谱发送后再使用 Modbus")
+
+    def _modbus_get_port(self) -> str:
+        port = self.port_box.currentData()
+        if not port:
+            raise RuntimeError("请选择有效串口")
+        return str(port)
+
+    @staticmethod
+    def _modbus_read_exact(ser: serial.Serial, size: int, timeout_s: float) -> bytes:
+        deadline = time.monotonic() + max(0.01, timeout_s)
+        buf = bytearray()
+        while len(buf) < size and time.monotonic() < deadline:
+            chunk = ser.read(size - len(buf))
+            if chunk:
+                buf.extend(chunk)
+        return bytes(buf)
+
+    def _modbus_read_response_read(self, ser: serial.Serial, timeout_s: float) -> bytes:
+        header = self._modbus_read_exact(ser, 3, timeout_s)
+        if len(header) < 3:
+            raise RuntimeError("读取响应超时")
+        byte_count = header[2]
+        rest = self._modbus_read_exact(ser, byte_count + 2, timeout_s)
+        if len(rest) < byte_count + 2:
+            raise RuntimeError("读取响应超时")
+        return header + rest
+
+    def _modbus_read_write_resp(self, ser: serial.Serial, timeout_s: float) -> bytes:
+        resp = self._modbus_read_exact(ser, 8, timeout_s)
+        if len(resp) < 8:
+            if len(resp) < 5:
+                resp += self._modbus_read_exact(ser, 5 - len(resp), timeout_s)
+            if len(resp) == 5 and verify_crc(resp) and (resp[1] & 0x80):
+                raise RuntimeError(f"异常响应码: 0x{resp[2]:02X}")
+            raise RuntimeError("响应长度不足")
+        if not verify_crc(resp):
+            raise RuntimeError("CRC 校验失败")
+        if resp[1] & 0x80:
+            raise RuntimeError(f"异常响应码: 0x{resp[2]:02X}")
+        return resp
+
+    # ---- modbus actions ----
+    def modbus_read_config(self):
+        """读取 MODE/HUE/SAT/VAL/PARAM 并填充到 UI。"""
+        try:
+            self._modbus_guard()
+            port = self._modbus_get_port()
+            baud = int(self.baud_box.currentText())
+            frame = build_read_holding(REG_MODE, 5)
+            with serial.Serial(port, baud, timeout=0.02, write_timeout=0.2) as ser:
+                ser.reset_input_buffer()
+                ser.write(frame)
+                resp = self._modbus_read_response_read(ser, 0.3)
+            values = parse_read_holding_response(resp)
+            self._modbus_updating = True
+            if len(values) >= 1:
+                self._set_mode_combo(int(values[0]))
+            if len(values) >= 2:
+                self.modbus_hue.setValue(int(values[1]))
+            if len(values) >= 3:
+                self.modbus_sat.setValue(int(values[2]))
+            if len(values) >= 4:
+                self.modbus_val.setValue(int(values[3]))
+            if len(values) >= 5:
+                self.modbus_param.setValue(int(values[4]))
+            self._update_param_hint()
+            self._on_hsv_spin_changed()
+            self._on_val_spin_changed()
+            self._modbus_updating = False
+            self._modbus_set_status(f"Modbus: 读取成功 ({len(values)} regs)")
+        except Exception as e:
+            self._modbus_updating = False
+            self._modbus_set_status(f"Modbus: 读取失败：{e}")
+
+    def modbus_write_config(self):
+        """写入 MODE/HUE/SAT/VAL/PARAM（0x10）。"""
+        try:
+            self._modbus_guard()
+            port = self._modbus_get_port()
+            baud = int(self.baud_box.currentText())
+            values = [
+                int(self.modbus_mode.currentData()),
+                int(self.modbus_hue.value()),
+                int(self.modbus_sat.value()),
+                int(self.modbus_val.value()),
+                int(self.modbus_param.value()),
+            ]
+            frame = build_write_multi(REG_MODE, values)
+            with serial.Serial(port, baud, timeout=0.02, write_timeout=0.2) as ser:
+                ser.reset_input_buffer()
+                ser.write(frame)
+                self._modbus_read_write_resp(ser, 0.3)
+            self._modbus_set_status("Modbus: 写入成功 (0x10)")
+        except Exception as e:
+            self._modbus_set_status(f"Modbus: 写入失败：{e}")
+
+    def modbus_write_param(self):
+        """写入 PARAM（0x06）。"""
+        try:
+            self._modbus_guard()
+            port = self._modbus_get_port()
+            baud = int(self.baud_box.currentText())
+            frame = build_write_single(REG_PARAM, int(self.modbus_param.value()))
+            with serial.Serial(port, baud, timeout=0.02, write_timeout=0.2) as ser:
+                ser.reset_input_buffer()
+                ser.write(frame)
+                self._modbus_read_write_resp(ser, 0.3)
+            self._modbus_set_status("Modbus: 参数写入成功 (0x06)")
+        except Exception as e:
+            self._modbus_set_status(f"Modbus: 参数写入失败：{e}")
 
     # ---- media ----
     def open_file(self):
@@ -568,6 +988,8 @@ class MainWindow(QWidget):
             self.audio_dev_box, self.refresh_audio_btn,
             self.sr_box, self.block_box, self.floor_db,
             self.print_box, self.print_every,
+            self.modbus_mode, self.modbus_hue, self.modbus_sat, self.modbus_val, self.modbus_val_slider, self.modbus_param,
+            self.modbus_read_btn, self.modbus_write_btn, self.modbus_param_btn,
             self.open_btn
         ):
             w.setEnabled(False)
@@ -595,6 +1017,8 @@ class MainWindow(QWidget):
             self.audio_dev_box, self.refresh_audio_btn,
             self.sr_box, self.block_box, self.floor_db,
             self.print_box, self.print_every,
+            self.modbus_mode, self.modbus_hue, self.modbus_sat, self.modbus_val, self.modbus_val_slider, self.modbus_param,
+            self.modbus_read_btn, self.modbus_write_btn, self.modbus_param_btn,
             self.open_btn
         ):
             w.setEnabled(True)

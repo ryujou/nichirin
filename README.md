@@ -42,6 +42,7 @@ Nichirin V3 是基于 STM32G030 的 WS2812 灯效控制工程，12 组灯珠（�
 - 旋转编码器 UI（短按切模式、长按进出设置、双击切条目）
 - 颜色参数 HSV（hue/sat/val）与模式参数实时调整
 - UART 频谱输入（音频频谱模式）
+- 模式 5 支持 PARAM 读写（spectrum_gain），可通过上位机调节
 - Flash 日志式双页存储，掉电记忆 + 版本/CRC 校验
 
 ## 硬件与接口说明
@@ -58,7 +59,7 @@ Nichirin V3 是基于 STM32G030 的 WS2812 灯效控制工程，12 组灯珠（�
 
 ### 事件规则
 
-- **短按（CLICK）**：切换模式（1 → 2 → 3 → 4 → 6 循环）
+- **短按（CLICK）**：切换模式（1 → 2 → 3 → 4 → 5 循环）
 - **长按（LONGPRESS）**：进入/退出设置
 - **双击（DOUBLE_CLICK）**：在设置页面切换条目
 - **旋转（ROTATE）**：调整当前条目参数
@@ -83,7 +84,10 @@ Nichirin V3 是基于 STM32G030 的 WS2812 灯效控制工程，12 组灯珠（�
 | 2 | 爆闪 | 周期闪烁 | strobe_period |
 | 3 | 常亮 | 固定亮度 | steady_bright |
 | 4 | 呼吸 | 呼吸亮度变化 | breath_speed |
-| 6 | 频谱 | 音频频谱响应 | spectrum_gain |
+| 5 | 频谱 | 音频频谱响应 | spectrum_gain |
+
+说明：
+- 模式 5 的 PARAM 对应 spectrum_gain，可读写；HUE/SAT/VAL 写入仅保存，不影响频谱显示
 
 ### 参数范围
 
@@ -99,7 +103,7 @@ Nichirin V3 是基于 STM32G030 的 WS2812 灯效控制工程，12 组灯珠（�
 
 工程使用日志式双页 Flash 存储（2KB/page）保存配置，包含：
 
-- 当前模式（1/2/3/4/6）
+- 当前模式（1/2/3/4/5）
 - HSV 颜色参数（hue/sat/val）
 - 各模式公共参数（flow_speed / strobe_period / steady_bright / breath_speed / spectrum_gain）
 - 格式标记 + 版本号 + CRC32
@@ -200,17 +204,19 @@ python PC_Host/Script/nichirin_pc.py
 Web 版本位于 `PC_Host/Web/`，用浏览器打开 `PC_Host/Web/index.html`。
 - 浏览器麦克风/文件频谱分析
 - Web Serial 串口发送
+- 模式 5 支持 PARAM（spectrum_gain）读写；切到 1~4 会自动停止频谱发送
+- 模式 5 隐藏颜色/色号输入（其它模式支持色号输入与显示实际输出色号）
 - 静态页面：https://ryujou.github.io/nichirin/
 
 ## 下位机状态机
 
 ```mermaid
 flowchart TD
-  A[上电/复位] --> B[Normal]
-  B -->|短按| B1[切换模式 1→2→3→4→6]
-  B -->|长按| C[设置]
-  C -->|短按| C1[切换页面：
-  Color ⇄ ModeParam]
+  A[上电/复位] --> B[正常模式]
+  B -->|短按| B1[切换模式 1→2→3→4→5]
+  B -->|长按| C[设置模式]
+  C -->|短按| C1[切换页面：Color ⇄ ModeParam]
+  C -->|双击| C2[切换条目]
   C -->|旋转| C3[调整当前参数]
   C -->|长按| B
 ```

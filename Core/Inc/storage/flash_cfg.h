@@ -22,7 +22,7 @@ enum
 typedef struct
 {
   uint8_t format_tag;      /* = FLASH_CFG_FORMAT_TAG */
-  uint8_t mode;            /* 1,2,3,4,6 */
+  uint8_t mode;            /* 1,2,3,4,5 */
   uint8_t flow_speed;      /* 0..255 */
   uint8_t strobe_period;   /* 0..255 */
   uint8_t steady_bright;   /* 0..255 */

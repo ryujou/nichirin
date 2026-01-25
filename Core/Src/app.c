@@ -11,7 +11,7 @@
   * - If DMA is busy, the frame is marked pending and sent as soon as DMA ends.
   ******************************************************************************
   * UI controls (simplified):
-  * - Normal: CLICK -> next mode (1,2,3,4,6), LONGPRESS -> enter setting.
+  * - Normal: CLICK -> next mode (1,2,3,4,5), LONGPRESS -> enter setting.
   * - Setting: CLICK -> toggle page (Color <-> ModeParam), DOUBLE_CLICK -> next item,
   *           ROTATE -> adjust item, LONGPRESS -> exit.
   ******************************************************************************
@@ -49,7 +49,7 @@ extern UART_HandleTypeDef huart2;
 
 typedef struct
 {
-  uint8_t mode;       /* 1..6 */
+  uint8_t mode;       /* 1..5 */
   uint16_t phase;     /* effect phase accumulator */
   uint8_t flash_ms;   /* selection flash countdown */
 } GroupState;
@@ -183,6 +183,11 @@ static uint16_t App_MapBreathStep(uint8_t breath_speed)
   return step;
 }
 
+static uint8_t App_IsValidMode(uint8_t mode)
+{
+  return (uint8_t)((mode == 1U) || (mode == 2U) || (mode == 3U) || (mode == 4U) || (mode == 5U));
+}
+
 static void App_FlashAll(uint8_t times)
 {
   uint8_t g;
@@ -310,10 +315,12 @@ static void App_RenderGroup(uint8_t group, uint16_t *pwm, uint32_t *idx)
       }
       break;
     }
-    case 6: /* audio spectrum */
+    case 5: /* audio spectrum */
     {
       uint16_t base_h = (uint16_t)((group * SPECTRUM_HUE_RANGE) / (GROUP_COUNT - 1U));
-      uint16_t hue = (uint16_t)((base_h + s_color.hue) % 360U);
+      uint16_t hue = base_h;
+      uint8_t base_s = 255U;
+      uint8_t base_v = 255U;
       uint8_t lit = (uint8_t)((s_bands_smooth[group] * (LEDS_PER_GROUP + 1U)) >> 8U);
 
       if (lit > LEDS_PER_GROUP)
@@ -323,9 +330,10 @@ static void App_RenderGroup(uint8_t group, uint16_t *pwm, uint32_t *idx)
       for (i = 0U; i < LEDS_PER_GROUP; i++)
       {
         uint8_t v = 0U;
-        if (i < lit)
+        uint8_t pos = (uint8_t)(LEDS_PER_GROUP - 1U - i);
+        if (pos < lit)
         {
-          v = (uint8_t)(((uint16_t)base_v * (uint16_t)(i + 1U)) / LEDS_PER_GROUP);
+          v = (uint8_t)(((uint16_t)base_v * (uint16_t)(pos + 1U)) / LEDS_PER_GROUP);
         }
         led_hsv_to_rgb(hue, base_s, v, &r, &g, &b);
         led_ws2812_encode_rgb(r, g, b, pwm, idx, ws2812_pwm_len());
@@ -433,7 +441,7 @@ void app_init(void)
     Debug_Printf("CFG load: none -> default");
   }
 
-  if (!((cfg.mode == 1U) || (cfg.mode == 2U) || (cfg.mode == 3U) || (cfg.mode == 4U) || (cfg.mode == 6U)))
+  if (!((cfg.mode == 1U) || (cfg.mode == 2U) || (cfg.mode == 3U) || (cfg.mode == 4U) || (cfg.mode == 5U)))
   {
     cfg.mode = 1U;
   }
@@ -622,6 +630,8 @@ void app_loop(void)
             h -= 360;
           }
           s_color.hue = (uint16_t)h;
+          s_color.sat = 255U;
+          s_color.val = 255U;
         }
         else if (s_ui_item == 1U)
         {
@@ -648,7 +658,7 @@ void app_loop(void)
           case 4:
             s_params.breath_speed = App_ClampU8((int16_t)s_params.breath_speed + delta_sum);
             break;
-          case 6:
+          case 5:
             s_params.spectrum_gain = App_ClampU8((int16_t)s_params.spectrum_gain + delta_sum);
             break;
           default:
@@ -680,7 +690,7 @@ void app_loop(void)
             case 2: val = s_params.strobe_period; break;
             case 3: val = s_params.steady_bright; break;
             case 4: val = s_params.breath_speed; break;
-            case 6: val = s_params.spectrum_gain; break;
+            case 5: val = s_params.spectrum_gain; break;
             default: val = 0U; break;
           }
         }
@@ -693,7 +703,7 @@ void app_loop(void)
       uint8_t g;
       if (s_ui_in_setting == 0U)
       {
-        static const uint8_t k_modes[] = { 1U, 2U, 3U, 4U, 6U };
+        static const uint8_t k_modes[] = { 1U, 2U, 3U, 4U, 5U };
         uint8_t old_mode = s_groups[0].mode;
         uint8_t next_mode = k_modes[0];
         for (g = 0U; g < (uint8_t)(sizeof(k_modes) / sizeof(k_modes[0])); g++)
@@ -749,7 +759,7 @@ void app_loop(void)
     {
       if (s_ui_in_setting == 0U)
       {
-        if (s_groups[0].mode != 6U)
+        if (s_groups[0].mode != 5U)
         {
           s_ui_in_setting = 1U;
           s_ui_page = 0U;
@@ -811,4 +821,162 @@ void app_loop(void)
       s_frame_pending = 0U;
     }
   }
+}
+
+AppModbusStatus app_modbus_read_reg(uint16_t reg, uint16_t *out)
+{
+  if (out == NULL)
+  {
+    return APP_MODBUS_ILLEGAL_ADDR;
+  }
+
+  switch (reg)
+  {
+    case 0x0000U:
+      *out = s_groups[0].mode;
+      return APP_MODBUS_OK;
+    case 0x0001U:
+      *out = s_color.hue;
+      return APP_MODBUS_OK;
+    case 0x0002U:
+      *out = s_color.sat;
+      return APP_MODBUS_OK;
+    case 0x0003U:
+      *out = s_color.val;
+      return APP_MODBUS_OK;
+    case 0x0004U:
+      switch (s_groups[0].mode)
+      {
+        case 1U: *out = s_params.flow_speed; break;
+        case 2U: *out = s_params.strobe_period; break;
+        case 3U: *out = s_params.steady_bright; break;
+        case 4U: *out = s_params.breath_speed; break;
+        case 5U: *out = s_params.spectrum_gain; break;
+        default: *out = 0U; break;
+      }
+      return APP_MODBUS_OK;
+    default:
+      break;
+  }
+
+  return APP_MODBUS_ILLEGAL_ADDR;
+}
+
+AppModbusStatus app_modbus_write_reg(uint16_t reg, uint16_t value, uint32_t now_ms)
+{
+  uint8_t changed = 0U;
+
+  switch (reg)
+  {
+    case 0x0000U:
+    {
+      uint8_t mode = (uint8_t)value;
+      if (App_IsValidMode(mode) == 0U)
+      {
+        return APP_MODBUS_IGNORED;
+      }
+      if (s_groups[0].mode != mode)
+      {
+        uint8_t g;
+        for (g = 0U; g < GROUP_COUNT; g++)
+        {
+          s_groups[g].mode = mode;
+          s_groups[g].phase = 0U;
+          s_groups[g].flash_ms = 0U;
+        }
+        s_flow_accum_ms = 0U;
+        changed = 1U;
+      }
+      break;
+    }
+    case 0x0001U:
+    {
+      uint16_t hue = value;
+      if (hue >= 360U)
+      {
+        hue %= 360U;
+      }
+      if (s_color.hue != hue)
+      {
+        s_color.hue = hue;
+        changed = 1U;
+      }
+      break;
+    }
+    case 0x0002U:
+    {
+      uint8_t sat = (value > 255U) ? 255U : (uint8_t)value;
+      if (s_color.sat != sat)
+      {
+        s_color.sat = sat;
+        changed = 1U;
+      }
+      break;
+    }
+    case 0x0003U:
+    {
+      uint8_t val = (value > 255U) ? 255U : (uint8_t)value;
+      if (s_color.val != val)
+      {
+        s_color.val = val;
+        changed = 1U;
+      }
+      break;
+    }
+    case 0x0004U:
+    {
+      uint8_t param = (value > 255U) ? 255U : (uint8_t)value;
+      switch (s_groups[0].mode)
+      {
+        case 1U:
+          if (s_params.flow_speed != param)
+          {
+            s_params.flow_speed = param;
+            changed = 1U;
+          }
+          break;
+        case 2U:
+          if (s_params.strobe_period != param)
+          {
+            s_params.strobe_period = param;
+            changed = 1U;
+          }
+          break;
+        case 3U:
+          if (s_params.steady_bright != param)
+          {
+            s_params.steady_bright = param;
+            changed = 1U;
+          }
+          break;
+        case 4U:
+          if (s_params.breath_speed != param)
+          {
+            s_params.breath_speed = param;
+            changed = 1U;
+          }
+          break;
+        case 5U:
+          if (s_params.spectrum_gain != param)
+          {
+            s_params.spectrum_gain = param;
+            changed = 1U;
+          }
+          break;
+        default:
+          return APP_MODBUS_IGNORED;
+      }
+      break;
+    }
+    default:
+      return APP_MODBUS_ILLEGAL_ADDR;
+  }
+
+  if (changed != 0U)
+  {
+    App_MarkCfgDirty(now_ms);
+    s_frame_pending = 1U;
+  }
+
+  return APP_MODBUS_OK;
 }

@@ -1,5 +1,6 @@
 ﻿const BANDS = 12;
-const FRAME_LEN = 1 + 1 + BANDS + 2;
+const FRAME_LEN = 9 + BANDS * 2;
+const BAND_REG_BASE = 0x0100;
 const AUDIO_EXT = [".mp3", ".wav", ".flac", ".aac", ".m4a", ".ogg", ".opus"]; 
 const VIDEO_EXT = [".mp4", ".mkv", ".avi", ".mov", ".webm", ".wmv"]; 
 
@@ -16,22 +17,42 @@ const ui = {
   refreshPortsBtn: document.getElementById("refreshPortsBtn"),
   connectBtn: document.getElementById("connectBtn"),
   disconnectBtn: document.getElementById("disconnectBtn"),
+  serialToggle: document.getElementById("serialToggle"),
+  serialSettingsRow: document.getElementById("serialSettingsRow"),
   baudSelect: document.getElementById("baudSelect"),
   hzInput: document.getElementById("hzInput"),
   printFrames: document.getElementById("printFrames"),
   printEvery: document.getElementById("printEvery"),
   serialStatus: document.getElementById("serialStatus"),
-  serialStats: document.getElementById("serialStats"),
-  sourceSelect: document.getElementById("sourceSelect"),
+sourceSelect: document.getElementById("sourceSelect"),
   micSelect: document.getElementById("micSelect"),
   refreshMicsBtn: document.getElementById("refreshMicsBtn"),
   srSelect: document.getElementById("srSelect"),
   blockSelect: document.getElementById("blockSelect"),
   floorInput: document.getElementById("floorInput"),
+  floorValue: document.getElementById("floorValue"),
+  dspPanel: document.getElementById("dspPanel"),
+  srRow: document.getElementById("srRow"),
+  floorRow: document.getElementById("floorRow"),
   startBtn: document.getElementById("startBtn"),
   stopBtn: document.getElementById("stopBtn"),
+  modeSelect: document.getElementById("modeSelect"),
+  configModeRow: document.getElementById("configModeRow"),
+  configParamRow: document.getElementById("configParamRow"),
+  configColorRow: document.getElementById("configColorRow"),
+  paramSlider: document.getElementById("paramSlider"),
+  paramValue: document.getElementById("paramValue"),
+  paramHint: document.getElementById("paramHint"),
+  colorPicker: document.getElementById("colorPicker"),
+  colorSwatch: document.getElementById("colorSwatch"),
+  colorHex: document.getElementById("colorHex"),
+  colorHexActual: document.getElementById("colorHexActual"),
+  readConfigBtn: document.getElementById("readConfigBtn"),
+  sendConfigBtn: document.getElementById("sendConfigBtn"),
   statusText: document.getElementById("statusText"),
   genreText: document.getElementById("genreText"),
+  logPanel: document.getElementById("logPanel"),
+  logToggle: document.getElementById("logToggle"),
   logView: document.getElementById("logView"),
 };
 
@@ -68,9 +89,21 @@ let serialState = {
   printEvery: 200,
   knownPorts: [],
   connecting: false,
+  rxCache: [],
+};
+
+let configState = {
+  mode: 1,
+  hue: 0,
+  sat: 255,
+  val: 255,
+  param: 128,
 };
 
 function log(msg) {
+  if (ui.logPanel && ui.logPanel.dataset.hidden === "1") {
+    return;
+  }
   const stamp = new Date().toLocaleTimeString();
   ui.logView.value += `[${stamp}] ${msg}\n`;
   ui.logView.scrollTop = ui.logView.scrollHeight;
@@ -108,18 +141,542 @@ function crc16Modbus(bytes) {
 }
 
 function buildFrame(bands) {
-  const payload = new Uint8Array(2 + BANDS);
-  payload[0] = 0x01;
-  payload[1] = 0x20;
+  const values = [];
   for (let i = 0; i < BANDS; i++) {
-    payload[2 + i] = bands[i] & 0xff;
+    values.push(bands[i] & 0xff);
+  }
+  return buildWriteMultipleRegisters(BAND_REG_BASE, values);
+}
+
+function buildWriteSingleRegister(reg, value) {
+  const payload = new Uint8Array(6);
+  payload[0] = 0x01;
+  payload[1] = 0x06;
+  payload[2] = (reg >> 8) & 0xff;
+  payload[3] = reg & 0xff;
+  payload[4] = (value >> 8) & 0xff;
+  payload[5] = value & 0xff;
+  const crc = crc16Modbus(payload);
+  const frame = new Uint8Array(8);
+  frame.set(payload, 0);
+  frame[6] = crc & 0xff;
+  frame[7] = (crc >> 8) & 0xff;
+  return frame;
+}
+
+function buildWriteMultipleRegisters(startReg, values) {
+  const count = values.length;
+  const byteCount = count * 2;
+  const payload = new Uint8Array(7 + byteCount);
+  payload[0] = 0x01;
+  payload[1] = 0x10;
+  payload[2] = (startReg >> 8) & 0xff;
+  payload[3] = startReg & 0xff;
+  payload[4] = (count >> 8) & 0xff;
+  payload[5] = count & 0xff;
+  payload[6] = byteCount & 0xff;
+  for (let i = 0; i < count; i++) {
+    const v = values[i] & 0xffff;
+    payload[7 + i * 2] = (v >> 8) & 0xff;
+    payload[8 + i * 2] = v & 0xff;
   }
   const crc = crc16Modbus(payload);
-  const frame = new Uint8Array(FRAME_LEN);
+  const frame = new Uint8Array(payload.length + 2);
   frame.set(payload, 0);
-  frame[FRAME_LEN - 2] = crc & 0xff;
-  frame[FRAME_LEN - 1] = (crc >> 8) & 0xff;
+  frame[frame.length - 2] = crc & 0xff;
+  frame[frame.length - 1] = (crc >> 8) & 0xff;
   return frame;
+}
+
+function buildReadHoldingRegisters(startReg, count) {
+  const payload = new Uint8Array(6);
+  payload[0] = 0x01;
+  payload[1] = 0x03;
+  payload[2] = (startReg >> 8) & 0xff;
+  payload[3] = startReg & 0xff;
+  payload[4] = (count >> 8) & 0xff;
+  payload[5] = count & 0xff;
+  const crc = crc16Modbus(payload);
+  const frame = new Uint8Array(8);
+  frame.set(payload, 0);
+  frame[6] = crc & 0xff;
+  frame[7] = (crc >> 8) & 0xff;
+  return frame;
+}
+
+async function sendOnce(frame, label) {
+  if (!serialState.port || !serialState.port.writable) {
+    setStatus("请先连接串口");
+    throw new Error("serial not ready");
+  }
+  let writer = serialState.writer;
+  let release = false;
+  if (!writer) {
+    if (serialState.port.writable.locked) {
+      throw new Error("串口写通道正忙，请稍后重试");
+    }
+    writer = serialState.port.writable.getWriter();
+    release = true;
+  }
+  try {
+    await writer.write(frame);
+    if (label) {
+      log(`TX ${label}`);
+    }
+  } finally {
+    if (release) {
+      await writer.releaseLock();
+    }
+  }
+}
+
+async function sendModeSelect(mode) {
+  const regMode = 0x0000;
+  const frame = buildWriteSingleRegister(regMode, mode & 0xffff);
+  await sendOnce(frame, `mode=${mode}`);
+}
+
+async function readExactBytes(reader, len, timeoutMs = 300) {
+  const out = new Uint8Array(len);
+  let offset = 0;
+  const t0 = performance.now();
+  while (offset < len) {
+    const elapsed = performance.now() - t0;
+    if (elapsed > timeoutMs) {
+      throw new Error("读取超时");
+    }
+    if (serialState.rxCache.length > 0) {
+      const n = Math.min(serialState.rxCache.length, len - offset);
+      for (let i = 0; i < n; i++) {
+        out[offset + i] = serialState.rxCache[i];
+      }
+      serialState.rxCache = serialState.rxCache.slice(n);
+      offset += n;
+      continue;
+    }
+
+    const { value, done } = await reader.read();
+    if (done) break;
+    if (value && value.length) {
+      for (let i = 0; i < value.length; i++) {
+        serialState.rxCache.push(value[i]);
+      }
+    }
+  }
+  if (offset < len) {
+    throw new Error("读取长度不足");
+  }
+  return out;
+}
+
+async function readModbusResponse(reader, timeoutMs = 800) {
+  const t0 = performance.now();
+  while ((performance.now() - t0) < timeoutMs) {
+    const remain = Math.max(20, timeoutMs - (performance.now() - t0));
+    const addrBuf = await readExactBytes(reader, 1, remain);
+    const addr = addrBuf[0];
+    if (addr !== 0x01) {
+      continue;
+    }
+    const funcBuf = await readExactBytes(reader, 1, remain);
+    const func = funcBuf[0];
+
+    if (func === 0x03 || func === 0x83) {
+      const lenBuf = await readExactBytes(reader, 1, remain);
+      const byteCount = lenBuf[0];
+      if (func === 0x83) {
+        const tail = await readExactBytes(reader, 2, remain);
+        const frame = new Uint8Array([addr, func, byteCount, tail[0], tail[1]]);
+        if (!verifyCrc(frame)) {
+          continue;
+        }
+        return { func, byteCount, frame };
+      }
+      const tail = await readExactBytes(reader, byteCount + 2, remain);
+      const frame = new Uint8Array(3 + tail.length);
+      frame.set([addr, func, byteCount], 0);
+      frame.set(tail, 3);
+      if (!verifyCrc(frame)) {
+        continue;
+      }
+      return { func, byteCount, frame };
+    }
+
+    if (func === 0x06 || func === 0x10) {
+      const tail = await readExactBytes(reader, 6, remain);
+      const frame = new Uint8Array(8);
+      frame.set([addr, func], 0);
+      frame.set(tail, 2);
+      if (verifyCrc(frame)) {
+        continue;
+      }
+      continue;
+    }
+  }
+  throw new Error("响应超时");
+}
+
+async function drainReadable(port, timeoutMs = 30) {
+  if (!port || !port.readable) return;
+  if (port.readable.locked) return;
+  const reader = port.readable.getReader();
+  try {
+    serialState.rxCache = [];
+    for (;;) {
+      const readPromise = reader.read();
+      const result = await Promise.race([
+        readPromise,
+        new Promise((resolve) => setTimeout(() => resolve({ timeout: true }), timeoutMs)),
+      ]);
+      if (result && result.timeout) break;
+      const { value, done } = result;
+      if (done || !value || value.length === 0) break;
+    }
+  } finally {
+    try { await reader.releaseLock(); } catch (_) {}
+  }
+}
+
+function verifyCrc(frame) {
+  const data = frame.subarray(0, frame.length - 2);
+  const crc = crc16Modbus(data);
+  const rx = frame[frame.length - 2] | (frame[frame.length - 1] << 8);
+  return crc === rx;
+}
+
+async function readConfigFromDevice() {
+  if (serialState.readingConfig) {
+    setStatus("读取中，请稍候");
+    return;
+  }
+  if (serialState.sending) {
+    setStatus("请先停止频谱发送，再读取配置");
+    return;
+  }
+  if (serialState.connecting) {
+    setStatus("串口连接中，请稍后");
+    return;
+  }
+  if (!serialState.port || !serialState.port.writable || !serialState.port.readable) {
+    setStatus("请先连接串口");
+    return;
+  }
+  if (serialState.port.readable.locked) {
+    setStatus("串口读通道正忙，请稍后重试");
+    return;
+  }
+  if (serialState.awaitingResponse) {
+    setStatus("串口返回处理中，请稍后");
+    return;
+  }
+  const startReg = 0x0000;
+  const count = 5;
+  const req = buildReadHoldingRegisters(startReg, count);
+  await drainReadable(serialState.port);
+  const reader = serialState.port.readable.getReader();
+  serialState.readingConfig = true;
+  serialState.awaitingResponse = true;
+  try {
+    await sendOnce(req, "read cfg");
+    const resp = await readModbusResponse(reader, 1200);
+    const func = resp.func;
+    const byteCount = resp.byteCount;
+    const frame = resp.frame;
+
+    if (func === 0x83) {
+      throw new Error(`设备异常码: 0x${byteCount.toString(16).padStart(2, "0")}`);
+    }
+    if (byteCount < 2 || (byteCount % 2) !== 0 || byteCount > 10) {
+      throw new Error("响应长度不匹配");
+    }
+    const values = [];
+    const regs = byteCount / 2;
+    for (let i = 0; i < regs; i++) {
+      const hi = frame[3 + i * 2];
+      const lo = frame[4 + i * 2];
+      values.push((hi << 8) | lo);
+    }
+    configState.mode = values[0];
+    configState.hue = clamp(values[1], 0, 359);
+    configState.sat = clamp(values[2], 0, 255);
+    configState.val = clamp(values[3], 0, 255);
+    if (values.length >= 5) {
+      configState.param = clamp(values[4], 0, 255);
+    }
+    ui.modeSelect.value = String(configState.mode);
+    updateColorUIFromHSV();
+    updateParamUI();
+    updateConfigVisibility();
+    setStatus("读取配置成功");
+  } catch (err) {
+    setStatus(`读取配置失败: ${err}`);
+  } finally {
+    serialState.readingConfig = false;
+    serialState.awaitingResponse = false;
+    try { await reader.releaseLock(); } catch (_) {}
+  }
+}
+
+function clamp(v, lo, hi) {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+function rgbToHsv(r, g, b) {
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  const d = max - min;
+  let h = 0;
+  if (d > 1e-6) {
+    if (max === rn) {
+      h = ((gn - bn) / d) % 6;
+    } else if (max === gn) {
+      h = (bn - rn) / d + 2;
+    } else {
+      h = (rn - gn) / d + 4;
+    }
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+  const s = max === 0 ? 0 : d / max;
+  const v = max;
+  return {
+    h: Math.round(h) % 360,
+    s: Math.round(s * 255),
+    v: Math.round(v * 255),
+  };
+}
+
+function hsvToRgb(h, s, v) {
+  const sn = clamp(s, 0, 255) / 255;
+  const vn = clamp(v, 0, 255) / 255;
+  const hh = ((h % 360) + 360) % 360;
+  const c = vn * sn;
+  const x = c * (1 - Math.abs(((hh / 60) % 2) - 1));
+  const m = vn - c;
+  let r1 = 0, g1 = 0, b1 = 0;
+  if (hh < 60) { r1 = c; g1 = x; b1 = 0; }
+  else if (hh < 120) { r1 = x; g1 = c; b1 = 0; }
+  else if (hh < 180) { r1 = 0; g1 = c; b1 = x; }
+  else if (hh < 240) { r1 = 0; g1 = x; b1 = c; }
+  else if (hh < 300) { r1 = x; g1 = 0; b1 = c; }
+  else { r1 = c; g1 = 0; b1 = x; }
+  return {
+    r: Math.round((r1 + m) * 255),
+    g: Math.round((g1 + m) * 255),
+    b: Math.round((b1 + m) * 255),
+  };
+}
+
+function parseHexColor(text) {
+  if (!text) return null;
+  let hex = text.trim();
+  if (hex.startsWith("#")) hex = hex.slice(1);
+  if (hex.length !== 6) return null;
+  const num = parseInt(hex, 16);
+  if (Number.isNaN(num)) return null;
+  return {
+    r: (num >> 16) & 0xff,
+    g: (num >> 8) & 0xff,
+    b: num & 0xff,
+  };
+}
+
+function toHex2(v) {
+  return v.toString(16).padStart(2, "0");
+}
+
+// ---- Lamp color constraints (avoid black/gray on device) ----
+// 灯本体不支持“黑/灰”这类低亮度/低饱和度颜色时，用阈值把颜色投影回可显示区域。
+// 经验上：灰 = 饱和度过低；黑 = 亮度过低。
+const LAMP_MIN_SAT = 0; // 0~255，越大越“彩”
+const LAMP_MIN_VAL = 0;  // 0~255，越大越“亮”
+
+function sanitizeLampHSV(nextHsv, fallbackHue) {
+  let h = clamp(nextHsv.h ?? 0, 0, 359);
+  let s = clamp(nextHsv.s ?? 0, 0, 255);
+  let v = clamp(nextHsv.v ?? 0, 0, 255);
+
+  // 对于近黑色：RGB -> HSV 时 hue 往往没有意义（可能被算成 0），因此优先保留上一帧 hue。
+  if (v < LAMP_MIN_VAL) {
+    v = LAMP_MIN_VAL;
+    h = clamp(fallbackHue ?? h, 0, 359);
+  }
+  if (s < LAMP_MIN_SAT) {
+    s = LAMP_MIN_SAT;
+    h = clamp(fallbackHue ?? h, 0, 359);
+  }
+  return { h, s, v };
+}
+
+function setLampColorFromHex(hex, { syncHexInput = true } = {}) {
+  const rgb = parseHexColor(hex);
+  if (!rgb) return;
+  const raw = rgbToHsv(rgb.r, rgb.g, rgb.b);
+  const fixed = sanitizeLampHSV(raw, configState.hue);
+  configState.hue = fixed.h;
+  configState.sat = fixed.s;
+  configState.val = fixed.v;
+  updateColorUIFromHSV({ syncHexInput });
+}
+
+function ensurePresetPalette() {
+  // 放在“颜色”字段下方，提供一排高饱和度预设色，避免用户去原生调色盘里点到灰/黑。
+  if (!ui.colorSwatch) return;
+  const field = ui.colorSwatch.closest(".field");
+  if (!field) return;
+
+  let palette = document.getElementById("presetPalette");
+  if (!palette) {
+    palette = document.createElement("div");
+    palette.id = "presetPalette";
+    palette.className = "preset-palette";
+    field.appendChild(palette);
+  }
+
+  const presets = [
+    "#ff3b30", // red
+    "#ff9500", // orange
+    "#ffcc00", // yellow
+    "#34c759", // green
+    "#00c7be", // teal
+    "#32ade6", // cyan
+    "#007aff", // blue
+    "#5856d6", // indigo
+    "#af52de", // purple
+    "#ff2d55", // pink
+    "#ffd6e7", // warm white-ish
+  ];
+
+  palette.innerHTML = "";
+  for (const hex of presets) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "preset-swatch";
+    btn.title = hex;
+    btn.style.setProperty("--_preset_bg", hex);
+    btn.addEventListener("click", () => setLampColorFromHex(hex));
+    palette.appendChild(btn);
+  }
+}
+
+function updateColorUIFromHSV({ syncHexInput = true } = {}) {
+  const rgb = hsvToRgb(configState.hue, configState.sat, configState.val);
+  const hex = `#${toHex2(rgb.r)}${toHex2(rgb.g)}${toHex2(rgb.b)}`.toUpperCase();
+  ui.colorPicker.value = hex;
+  if (syncHexInput) {
+    ui.colorHex.value = hex;
+  }
+  if (ui.colorSwatch) {
+    ui.colorSwatch.style.background = hex;
+  }
+  if (ui.colorHexActual) {
+    const userHex = (ui.colorHex.value || "").trim().toUpperCase();
+    if (!userHex || userHex === hex) {
+      ui.colorHexActual.style.display = "none";
+    } else {
+      ui.colorHexActual.textContent = `实际输出: ${hex}`;
+      ui.colorHexActual.style.display = "";
+    }
+  }
+}
+
+function updateParamUI() {
+  ui.paramSlider.value = String(configState.param);
+  ui.paramValue.value = String(configState.param);
+  let hint = `${configState.param}`;
+  const mode = configState.mode;
+  if (mode === 1) {
+    const ms = 40 + (configState.param * (320 - 40)) / 255;
+    hint = `${ms.toFixed(0)} ms`;
+  } else if (mode === 2) {
+    const ms = 80 + (configState.param * (2000 - 80)) / 255;
+    hint = `${ms.toFixed(0)} ms`;
+  } else if (mode === 3) {
+    const pct = (configState.param / 255) * 100;
+    hint = `${pct.toFixed(0)} %`;
+  } else if (mode === 4) {
+    const step = 1 + ((255 - configState.param) * 4) / 255;
+    hint = `步进 ${step.toFixed(1)}`;
+  } else if (mode === 5) {
+    const pct = (configState.param / 255) * 100;
+    hint = `${pct.toFixed(0)} %`;
+  }
+  ui.paramHint.textContent = hint;
+}
+
+function updateConfigVisibility() {
+  const isSpectrum = configState.mode === 5;
+  if (ui.configParamRow) {
+    ui.configParamRow.style.display = "";
+  }
+  if (ui.dspPanel) {
+    ui.dspPanel.style.display = isSpectrum ? "" : "none";
+  }
+  if (ui.srRow) {
+    ui.srRow.style.display = "none";
+  }
+  const colorField = ui.colorPicker ? ui.colorPicker.closest(".field") : null;
+  const hexField = ui.colorHex ? ui.colorHex.closest(".field") : null;
+  if (colorField) {
+    colorField.style.display = isSpectrum ? "none" : "";
+  }
+  if (hexField) {
+    hexField.style.display = isSpectrum ? "none" : "";
+  }
+  if (ui.colorHexActual) {
+    ui.colorHexActual.style.display = isSpectrum ? "none" : ui.colorHexActual.style.display;
+  }
+}
+
+function buildWriteSingleRegister(reg, value) {
+  const payload = new Uint8Array(6);
+  payload[0] = 0x01;
+  payload[1] = 0x06;
+  payload[2] = (reg >> 8) & 0xff;
+  payload[3] = reg & 0xff;
+  payload[4] = (value >> 8) & 0xff;
+  payload[5] = value & 0xff;
+  const crc = crc16Modbus(payload);
+  const frame = new Uint8Array(8);
+  frame.set(payload, 0);
+  frame[6] = crc & 0xff;
+  frame[7] = (crc >> 8) & 0xff;
+  return frame;
+}
+
+async function sendOnce(frame, label) {
+  if (!serialState.port || !serialState.port.writable) {
+    setStatus("请先连接串口");
+    throw new Error("serial not ready");
+  }
+  let writer = serialState.writer;
+  let release = false;
+  if (!writer) {
+    if (serialState.port.writable.locked) {
+      throw new Error("串口写通道正忙，请稍后重试");
+    }
+    writer = serialState.port.writable.getWriter();
+    release = true;
+  }
+  try {
+    await writer.write(frame);
+    if (label) {
+      log(`TX ${label}`);
+    }
+  } finally {
+    if (release) {
+      await writer.releaseLock();
+    }
+  }
+}
+
+async function sendModeSelect(mode) {
+  const regMode = 0x0000;
+  const frame = buildWriteSingleRegister(regMode, mode & 0xffff);
+  await sendOnce(frame, `mode=${mode}`);
 }
 
 function makeLogBins(sr, nfft, bands, fmin, fmax) {
@@ -540,13 +1097,7 @@ async function startSending() {
         const crc = frame[FRAME_LEN - 2] | (frame[FRAME_LEN - 1] << 8);
         log(`[TX ${serialState.sent.toString().padStart(6, " ")}] bands=${audioState.latestBands} crc=0x${crc.toString(16).padStart(4, "0")}`);
       }
-
-      const elapsed = (performance.now() - serialState.t0) / 1000;
-      if (elapsed > 0) {
-        ui.serialStats.textContent = `TX ${serialState.sent} / ${elapsed.toFixed(1)}s / err ${serialState.err}`;
-      }
-
-      const cost = performance.now() - start;
+const cost = performance.now() - start;
       const sleep = Math.max(0, period - cost);
       if (sleep > 0) {
         await new Promise((r) => setTimeout(r, Math.min(5, sleep)));
@@ -908,6 +1459,11 @@ async function startAll() {
       setStatus("文件频谱已启动");
     }
     await audioState.ctx.resume();
+    try {
+      await sendModeSelect(5);
+    } catch (err) {
+      setStatus(`自动切换模式失败: ${err}`);
+    }
     startProcessingLoop();
     await startSending();
     ui.startBtn.disabled = true;
@@ -1022,6 +1578,96 @@ ui.sourceSelect.addEventListener("change", () => {
   updateMediaControls();
 });
 
+ui.modeSelect.addEventListener("change", async () => {
+  const nextMode = parseInt(ui.modeSelect.value, 10);
+  configState.mode = nextMode;
+  updateParamUI();
+  updateConfigVisibility();
+  if (nextMode !== 5 && (serialState.sending || audioState.running)) {
+    await stopAll();
+  }
+});
+
+ui.paramSlider.addEventListener("input", () => {
+  configState.param = clamp(parseInt(ui.paramSlider.value, 10) || 0, 0, 255);
+  ui.paramValue.value = String(configState.param);
+  updateParamUI();
+});
+
+ui.paramValue.addEventListener("input", () => {
+  const v = clamp(parseInt(ui.paramValue.value, 10) || 0, 0, 255);
+  configState.param = v;
+  ui.paramSlider.value = String(v);
+  updateParamUI();
+});
+
+ui.floorInput.addEventListener("input", () => {
+  const v = clamp(parseInt(ui.floorInput.value, 10) || 0, 0, 120);
+  ui.floorInput.value = String(v);
+  if (ui.floorValue) {
+    ui.floorValue.textContent = `${v} dB`;
+  }
+});
+
+ui.colorPicker.addEventListener("input", () => {
+  // 原生 type=color 的面板不可定制（会带灰阶/黑色等）。
+  // 这里在用户选择后把颜色投影到灯可显示的“彩色区间”。
+  setLampColorFromHex(ui.colorPicker.value);
+});
+
+ui.colorHex.addEventListener("change", () => {
+  const rgb = parseHexColor(ui.colorHex.value);
+  if (!rgb) {
+    ui.colorHex.value = ui.colorPicker.value;
+    return;
+  }
+  const hex = `#${toHex2(rgb.r)}${toHex2(rgb.g)}${toHex2(rgb.b)}`.toUpperCase();
+  ui.colorHex.value = hex;
+  setLampColorFromHex(hex, { syncHexInput: false });
+});
+
+if (ui.colorSwatch && ui.colorPicker) {
+  ui.colorSwatch.addEventListener("click", () => {
+    ui.colorPicker.click();
+  });
+}
+
+// 预设色板（避免原生色板里的灰/黑）
+ensurePresetPalette();
+
+ui.serialToggle.addEventListener("click", () => {
+  const hidden = ui.serialSettingsRow.dataset.hidden === "1";
+  ui.serialSettingsRow.dataset.hidden = hidden ? "" : "1";
+  ui.serialSettingsRow.style.display = hidden ? "" : "none";
+});
+
+ui.logToggle.addEventListener("click", () => {
+  const hidden = ui.logPanel.dataset.hidden === "1";
+  ui.logPanel.dataset.hidden = hidden ? "" : "1";
+  ui.logPanel.style.display = hidden ? "" : "none";
+  ui.logToggle.textContent = hidden ? "隐藏" : "显示";
+});
+
+ui.sendConfigBtn.addEventListener("click", async () => {
+  const base = [
+    configState.mode & 0xffff,
+    clamp(configState.hue, 0, 359),
+    clamp(configState.sat, 0, 255),
+    clamp(configState.val, 0, 255),
+  ];
+  const values = base.concat([clamp(configState.param, 0, 255)]);
+  try {
+    const frame = buildWriteMultipleRegisters(0x0000, values);
+    const logMsg = `cfg mode=${values[0]} hsv=${values[1]}/${values[2]}/${values[3]} param=${values[4]}`;
+    await sendOnce(frame, logMsg);
+    setStatus("配置已发送");
+  } catch (err) {
+    setStatus(`发送配置失败: ${err}`);
+  }
+});
+
+ui.readConfigBtn.addEventListener("click", readConfigFromDevice);
+
 ui.startBtn.addEventListener("click", startAll);
 ui.stopBtn.addEventListener("click", stopAll);
 
@@ -1055,3 +1701,216 @@ refreshPorts(false);
 refreshMics();
 updateMediaControls();
 setGenreText(0.0);
+updateColorUIFromHSV();
+updateParamUI();
+updateConfigVisibility();
+if (ui.floorValue && ui.floorInput) {
+  ui.floorValue.textContent = `${ui.floorInput.value} dB`;
+}
+if (ui.logToggle) {
+  ui.logPanel.dataset.hidden = "1";
+  ui.logPanel.style.display = "none";
+  ui.logToggle.textContent = "显示";
+}
+if (ui.serialSettingsRow) {
+  ui.serialSettingsRow.dataset.hidden = "1";
+  ui.serialSettingsRow.style.display = "none";
+}
+
+/* ===== 角色配色页（BanG Dream!） ===== */
+(function () {
+  const DATA_URL = "bangdream_avatars.json";
+
+  function normalizeHex(hex) {
+    if (!hex) return null;
+    let s = String(hex).trim();
+    if (!s.startsWith("#")) s = "#" + s;
+    if (!/^#[0-9a-fA-F]{6}$/.test(s)) return null;
+    return "#" + s.slice(1).toUpperCase();
+  }
+
+  async function loadCharacterData() {
+    const res = await fetch(DATA_URL, { cache: "no-store" });
+    const data = await res.json();
+    const list = Array.isArray(data.items) ? data.items : [];
+    return list.map((item) => ({
+      name: String(item.name || "").trim(),
+      band: String(item.band || "").trim(),
+      hex: normalizeHex(item.color) || "#FF66AA",
+      image: item.image || "",
+    })).filter((x) => x.name);
+  }
+
+  window.setLampColorHex = async function (hex, opts = {}) {
+    const send = (opts && typeof opts.send === "boolean") ? opts.send : true;
+    const n = normalizeHex(hex);
+    if (!n) return false;
+    setLampColorFromHex(n);
+    if (send && ui.sendConfigBtn) {
+      ui.sendConfigBtn.click();
+    }
+    return true;
+  };
+
+  function setActiveNav(active) {
+    const mainBtn = document.getElementById("navMain");
+    const charBtn = document.getElementById("navCharacters");
+    if (mainBtn) mainBtn.classList.toggle("active", active === "main");
+    if (charBtn) charBtn.classList.toggle("active", active === "characters");
+  }
+
+  function showPage(which) {
+    const main = document.getElementById("page-main");
+    const chars = document.getElementById("page-characters");
+    if (main) main.classList.toggle("hidden", which !== "main");
+    if (chars) chars.classList.toggle("hidden", which !== "characters");
+    setActiveNav(which);
+  }
+
+  function initNav() {
+    const mainBtn = document.getElementById("navMain");
+    const charBtn = document.getElementById("navCharacters");
+    if (mainBtn) mainBtn.addEventListener("click", () => {
+      history.replaceState(null, "", "#main");
+      showPage("main");
+    });
+    if (charBtn) charBtn.addEventListener("click", () => {
+      history.replaceState(null, "", "#characters");
+      showPage("characters");
+    });
+
+    const hash = (location.hash || "").toLowerCase();
+    if (hash.includes("character")) showPage("characters");
+    else showPage("main");
+    window.addEventListener("hashchange", () => {
+      const h = (location.hash || "").toLowerCase();
+      if (h.includes("character")) showPage("characters");
+      else showPage("main");
+    });
+  }
+
+  async function initCharacterPage() {
+    const grid = document.getElementById("charGrid");
+    const search = document.getElementById("charSearch");
+    const filter = document.getElementById("bandFilter");
+    const hint = document.getElementById("charHint");
+    if (!grid || !search || !filter) return;
+
+    let data = [];
+    try {
+      data = await loadCharacterData();
+    } catch (err) {
+      if (hint) hint.textContent = "角色数据加载失败";
+      log(`角色数据加载失败: ${err}`);
+      return;
+    }
+
+    const bands = Array.from(new Set(data.map((d) => d.band).filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b, "zh"));
+    if (bands.length === 0) {
+      filter.style.display = "none";
+    } else {
+      for (const b of bands) {
+        const opt = document.createElement("option");
+        opt.value = b;
+        opt.textContent = b;
+        filter.appendChild(opt);
+      }
+    }
+
+    function render() {
+      const q = (search.value || "").trim().toLowerCase();
+      const band = filter.value || "";
+      let list = data;
+      if (band) list = list.filter((x) => x.band === band);
+      if (q) {
+        list = list.filter((x) => (x.name || "").toLowerCase().includes(q));
+      }
+
+      grid.innerHTML = "";
+      if (hint) hint.textContent = `共 ${list.length} 名角色`;
+
+      for (const item of list) {
+        const hex = normalizeHex(item.hex) || "#FF66AA";
+        const name = item.name || "未知";
+        const bandName = item.band || "";
+
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "char-card";
+        btn.setAttribute("data-hex", hex);
+        btn.setAttribute("title", `${name}（${hex}）`);
+        btn.style.setProperty("--char-color", hex);
+
+        const avatar = document.createElement("div");
+        avatar.className = "char-avatar";
+
+        const initial = document.createElement("span");
+        initial.className = "char-initial";
+        initial.textContent = name.slice(0, 1);
+
+        if (item.image) {
+          const img = document.createElement("img");
+          img.alt = name;
+          img.loading = "lazy";
+          img.src = item.image;
+          img.addEventListener("load", () => {
+            initial.style.display = "none";
+          });
+          img.addEventListener("error", () => {
+            if (img.parentNode) {
+              img.remove();
+            }
+            initial.style.display = "";
+          });
+          avatar.appendChild(img);
+        }
+        avatar.appendChild(initial);
+
+        const meta = document.createElement("div");
+        meta.className = "char-meta";
+
+        const n = document.createElement("div");
+        n.className = "char-name";
+        n.textContent = name;
+
+        const b = document.createElement("div");
+        b.className = "char-band";
+        b.textContent = bandName;
+
+        meta.appendChild(n);
+        if (bandName) {
+          meta.appendChild(b);
+        }
+
+        const chip = document.createElement("span");
+        chip.className = "char-chip";
+        chip.style.backgroundColor = hex;
+
+        btn.appendChild(avatar);
+        btn.appendChild(meta);
+        btn.appendChild(chip);
+
+        btn.addEventListener("click", async () => {
+          await window.setLampColorHex(hex, { send: true });
+        });
+
+        grid.appendChild(btn);
+      }
+    }
+
+    search.addEventListener("input", render);
+    filter.addEventListener("change", render);
+    render();
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => {
+      initNav();
+      initCharacterPage();
+    });
+  } else {
+    initNav();
+    initCharacterPage();
+  }
+})();

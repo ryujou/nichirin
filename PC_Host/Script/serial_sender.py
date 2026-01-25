@@ -10,13 +10,12 @@
 from __future__ import annotations
 
 import time
-import struct
 from dataclasses import dataclass
 
 import serial
 from PyQt6.QtCore import QThread, pyqtSignal
 
-from pc_common import FRAME_LEN, build_frame
+from pc_common import build_write_bands
 
 
 @dataclass
@@ -79,10 +78,12 @@ class SenderThread(QThread):
                     next_time = now
 
                 bands_u8 = self.provider.get_latest()
-                frame = build_frame(bands_u8)
+                frame = build_write_bands(bands_u8)
 
                 try:
                     ser.write(frame)
+                    if ser.in_waiting:
+                        ser.read(ser.in_waiting)
                 except Exception as e:
                     err += 1
                     if err % 10 == 1:
@@ -90,7 +91,7 @@ class SenderThread(QThread):
 
                 sent += 1
                 if self.cfg.print_frames and (sent % every_n == 0):
-                    crc = struct.unpack_from("<H", frame, FRAME_LEN - 2)[0]
+                    crc = int.from_bytes(frame[-2:], "little")
                     self.log.emit(f"[TX {sent:6d}] bands={bands_u8} crc=0x{crc:04X}")
 
                 if now - last_report >= 1.0:
